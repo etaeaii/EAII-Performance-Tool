@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: eaii-ptt
+    runtime: docker
+    repo: https://github.com/yourusername/your-repo
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: LOCUST_PORT
+        value: 8089
+      - key: RENDER
+        value: true
+      - key: PYTHONUNBUFFERED
+        value: 1
+    healthCheckPath: /
+    autoDeploy: true
+    disk:
+      name: eaii-data
+      mountPath: /app/test_history
+      sizeGB: 1
