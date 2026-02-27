@@ -1494,11 +1494,64 @@ if st.session_state.current_page == "Home":
             st.caption(f"≈ {duration//60} minutes, {duration%60} seconds")
         
         if not st.session_state.test_running:
-            if st.button("🚀 Start Performance Test", type="primary", use_container_width=True):
-                st.session_state.test_running = True
-                st.session_state.config = get_test_config(test_type, users, spawn_rate, duration)
-                st.session_state.project_name = project_name
-                st.session_state.manual_stop = False
+    if st.button("🚀 Start Performance Test", type="primary", use_container_width=True):
+        st.session_state.test_running = True
+        st.session_state.config = get_test_config(test_type, users, spawn_rate, duration)
+        st.session_state.project_name = project_name
+        st.session_state.manual_stop = False
+        
+        # Create expandable debug section
+        with st.expander("🔧 Debug Information", expanded=True):
+            st.write("### System Information")
+            st.write(f"- Python: {sys.version}")
+            st.write(f"- Platform: {platform.platform()}")
+            st.write(f"- Render: {IS_RENDER}")
+            st.write(f"- Locust Port: {LOCUST_PORT}")
+            
+            # Check PATH
+            st.write("### PATH")
+            st.code("\n".join(os.environ.get("PATH", "").split(":")))
+            
+            # Try to find locust
+            st.write("### Locust Location")
+            try:
+                which_locust = subprocess.run(["which", "locust"], capture_output=True, text=True)
+                st.write(f"which locust: {which_locust.stdout}")
+                if which_locust.returncode != 0:
+                    st.error("locust not found in PATH")
+            except Exception as e:
+                st.error(f"Error checking locust: {e}")
+            
+            # Try to run locust --version
+            st.write("### Locust Version")
+            try:
+                result = subprocess.run(["locust", "--version"], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    st.success(f"✅ {result.stdout}")
+                else:
+                    st.error(f"❌ Error: {result.stderr}")
+            except FileNotFoundError:
+                st.error("❌ locust command not found")
+            except Exception as e:
+                st.error(f"❌ Exception: {e}")
+            
+            # List installed packages
+            st.write("### Installed Packages")
+            try:
+                pip_list = subprocess.run([sys.executable, "-m", "pip", "list"], 
+                                         capture_output=True, text=True)
+                locust_packages = [line for line in pip_list.stdout.split('\n') 
+                                 if 'locust' in line.lower()]
+                if locust_packages:
+                    st.success("✅ Found: " + "\n".join(locust_packages))
+                else:
+                    st.error("❌ No locust packages found in pip list")
+            except Exception as e:
+                st.error(f"Error listing packages: {e}")
+        
+        # Ask user to check debug info
+        st.warning("Please check the debug information above. If locust is not found, the deployment needs to be fixed.")
+        st.session_state.test_running = False
                 
                 # Show test summary
                 with st.expander("Test Configuration", expanded=True):
@@ -1858,3 +1911,4 @@ def cleanup():
         stop_test()
 
 atexit.register(cleanup)
+
