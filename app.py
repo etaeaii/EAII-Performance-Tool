@@ -399,6 +399,47 @@ def get_system_metrics():
         logger.error(f"Error getting system metrics: {e}")
         return 0, 0, 0, 0
 
+def verify_locust_installation():
+    """Verify that Locust is properly installed and accessible"""
+    try:
+        # Try multiple methods to check locust
+        methods = [
+            ["locust", "--version"],
+            ["python", "-m", "locust", "--version"],
+            ["pip", "show", "locust"]
+        ]
+        
+        for cmd in methods:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    output = result.stdout.strip()
+                    logger.info(f"✅ Locust check passed with: {' '.join(cmd)}")
+                    logger.info(f"Output: {output[:100]}")
+                    return True, output
+            except FileNotFoundError:
+                continue
+            except Exception as e:
+                logger.debug(f"Method {' '.join(cmd)} failed: {e}")
+                continue
+        
+        # If we get here, try to install locust
+        logger.warning("Locust not found, attempting to install...")
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "locust"], 
+                         check=True, capture_output=True, text=True)
+            logger.info("✅ Locust installed successfully")
+            return True, "Installed on demand"
+        except Exception as e:
+            logger.error(f"Failed to install locust: {e}")
+            return False, None
+            
+    except Exception as e:
+        logger.error(f"❌ Error checking Locust: {e}")
+        return False, None
+        
+
+
 def validate_target_url(url):
     """Validate the target URL format"""
     pattern = re.compile(
@@ -1911,4 +1952,5 @@ def cleanup():
         stop_test()
 
 atexit.register(cleanup)
+
 
