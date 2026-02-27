@@ -1534,147 +1534,146 @@ if st.session_state.current_page == "Home":
             )
             st.caption(f"≈ {duration//60} minutes, {duration%60} seconds")
         
-        if not st.session_state.test_running:
-            if not st.session_state.test_running:
-            if st.button("🚀 Start Performance Test", type="primary", use_container_width=True):
-                st.session_state.test_running = True
-                st.session_state.config = get_test_config(test_type, users, spawn_rate, duration)
-                st.session_state.project_name = project_name
-                st.session_state.manual_stop = False
-                
-                # Show test summary
-                with st.expander("Test Configuration", expanded=True):
-                    cols = st.columns(4)
-                    cols[0].metric("Project", project_name)
-                    cols[1].metric("Test Type", test_type)
-                    cols[2].metric("Users", st.session_state.config['users'])
-                    cols[3].metric("Duration", f"{st.session_state.config['duration']}s")
-                
-                # Progress indicators
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                try:
-                    # Step 1: Check Locust
-                    status_text.text("🔍 Checking Locust installation...")
-                    locust_ok, version = verify_locust_installation()
-                    if not locust_ok:
-                        st.error("❌ Locust is not installed or not accessible")
-                        st.session_state.test_running = False
-                        st.stop()
-                    
-                    progress_bar.progress(25)
-                    
-                    # Step 2: Start Locust
-                    status_text.text("🚀 Starting Locust server...")
-                    process = start_locust_server(target_host)
-                    if not process:
-                        st.error("❌ Failed to start Locust server")
-                        st.session_state.test_running = False
-                        st.stop()
-                    
-                    progress_bar.progress(50)
-                    
-                    # Step 3: Trigger test
-                    status_text.text("🎯 Triggering test...")
-                    if not trigger_test(users, spawn_rate, target_host):
-                        st.error("❌ Failed to trigger test")
-                        st.session_state.test_running = False
-                        stop_test()
-                        st.stop()
-                    
-                    progress_bar.progress(75)
-                    status_text.text("📊 Test running...")
-                    
-                    # Step 4: Monitor test
-                    df_stats = monitor_test(duration)
-                    
-                    progress_bar.progress(100)
-                    status_text.text("✅ Test completed!")
-                    
-                    # Show results
-                    if not df_stats.empty:
-                        st.success("✅ Test completed successfully!")
-                        st.dataframe(df_stats, use_container_width=True)
+                if not st.session_state.test_running:
+                    if st.button("🚀 Start Performance Test", type="primary", use_container_width=True):
+                        st.session_state.test_running = True
+                        st.session_state.config = get_test_config(test_type, users, spawn_rate, duration)
+                        st.session_state.project_name = project_name
+                        st.session_state.manual_stop = False
                         
-                        # Calculate summary stats
-                        total_requests = df_stats["RPS"].sum() * (duration / len(df_stats))
-                        failures_rate = df_stats["Fail %"].mean()
-                        avg_rps = df_stats["RPS"].mean()
-                        avg_response = df_stats["Avg Response"].mean()
-                        p95_response = df_stats["95%ile"].mean()
+                        # Show test summary
+                        with st.expander("Test Configuration", expanded=True):
+                            cols = st.columns(4)
+                            cols[0].metric("Project", project_name)
+                            cols[1].metric("Test Type", test_type)
+                            cols[2].metric("Users", st.session_state.config['users'])
+                            cols[3].metric("Duration", f"{st.session_state.config['duration']}s")
                         
-                        # Create test data
-                        test_data = {
-                            "test_id": str(uuid.uuid4()),
-                            "test_type": test_type,
-                            "project_name": project_name,
-                            "users": users,
-                            "duration": f"{duration} seconds",
-                            "start_time": datetime.now().isoformat(),
-                            "end_time": datetime.now().isoformat(),
-                            "stats": {
-                                "total_requests": total_requests,
-                                "failures_rate": failures_rate,
-                                "rps": avg_rps,
-                                "avg_response_time": avg_response,
-                                "p95_response_time": p95_response,
-                                "max_response_time": df_stats["Avg Response"].max()
-                            },
-                            "overall_status": "✅ Completed"
-                        }
+                        # Progress indicators
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
                         
-                        # Generate graph
-                        actual_performance = {
-                            "Requests Per Second (RPS)": avg_rps,
-                            "Average Response Time (ms)": avg_response,
-                            "95th Percentile Response Time (ms)": p95_response,
-                            "Max Response Time (ms)": df_stats["Avg Response"].max(),
-                            "Failure Rate (%)": failures_rate
-                        }
-                        
-                        graph_dir = '/tmp/test_history' if IS_RENDER else 'test_history'
-                        os.makedirs(graph_dir, exist_ok=True)
-                        graph_filename = f"{graph_dir}/{test_data['test_id']}_graph.png"
-                        
-                        fig = generate_performance_graph(actual_performance, test_type, total_requests, failures_rate)
-                        fig.savefig(graph_filename, bbox_inches="tight", dpi=100)
-                        plt.close(fig)
-                        
-                        # Save history
-                        save_test_history(test_data, graph_filename)
-                        
-                        # Download buttons
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if os.path.exists(graph_filename):
-                                with open(graph_filename, "rb") as f:
+                        try:
+                            # Step 1: Check Locust
+                            status_text.text("🔍 Checking Locust installation...")
+                            locust_ok, version = verify_locust_installation()
+                            if not locust_ok:
+                                st.error("❌ Locust is not installed or not accessible")
+                                st.session_state.test_running = False
+                                st.stop()
+                            
+                            progress_bar.progress(25)
+                            
+                            # Step 2: Start Locust
+                            status_text.text("🚀 Starting Locust server...")
+                            process = start_locust_server(target_host)
+                            if not process:
+                                st.error("❌ Failed to start Locust server")
+                                st.session_state.test_running = False
+                                st.stop()
+                            
+                            progress_bar.progress(50)
+                            
+                            # Step 3: Trigger test
+                            status_text.text("🎯 Triggering test...")
+                            if not trigger_test(users, spawn_rate, target_host):
+                                st.error("❌ Failed to trigger test")
+                                st.session_state.test_running = False
+                                stop_test()
+                                st.stop()
+                            
+                            progress_bar.progress(75)
+                            status_text.text("📊 Test running...")
+                            
+                            # Step 4: Monitor test
+                            df_stats = monitor_test(duration)
+                            
+                            progress_bar.progress(100)
+                            status_text.text("✅ Test completed!")
+                            
+                            # Show results
+                            if not df_stats.empty:
+                                st.success("✅ Test completed successfully!")
+                                st.dataframe(df_stats, use_container_width=True)
+                                
+                                # Calculate summary stats
+                                total_requests = df_stats["RPS"].sum() * (duration / len(df_stats))
+                                failures_rate = df_stats["Fail %"].mean()
+                                avg_rps = df_stats["RPS"].mean()
+                                avg_response = df_stats["Avg Response"].mean()
+                                p95_response = df_stats["95%ile"].mean()
+                                
+                                # Create test data
+                                test_data = {
+                                    "test_id": str(uuid.uuid4()),
+                                    "test_type": test_type,
+                                    "project_name": project_name,
+                                    "users": users,
+                                    "duration": f"{duration} seconds",
+                                    "start_time": datetime.now().isoformat(),
+                                    "end_time": datetime.now().isoformat(),
+                                    "stats": {
+                                        "total_requests": total_requests,
+                                        "failures_rate": failures_rate,
+                                        "rps": avg_rps,
+                                        "avg_response_time": avg_response,
+                                        "p95_response_time": p95_response,
+                                        "max_response_time": df_stats["Avg Response"].max()
+                                    },
+                                    "overall_status": "✅ Completed"
+                                }
+                                
+                                # Generate graph
+                                actual_performance = {
+                                    "Requests Per Second (RPS)": avg_rps,
+                                    "Average Response Time (ms)": avg_response,
+                                    "95th Percentile Response Time (ms)": p95_response,
+                                    "Max Response Time (ms)": df_stats["Avg Response"].max(),
+                                    "Failure Rate (%)": failures_rate
+                                }
+                                
+                                graph_dir = '/tmp/test_history' if IS_RENDER else 'test_history'
+                                os.makedirs(graph_dir, exist_ok=True)
+                                graph_filename = f"{graph_dir}/{test_data['test_id']}_graph.png"
+                                
+                                fig = generate_performance_graph(actual_performance, test_type, total_requests, failures_rate)
+                                fig.savefig(graph_filename, bbox_inches="tight", dpi=100)
+                                plt.close(fig)
+                                
+                                # Save history
+                                save_test_history(test_data, graph_filename)
+                                
+                                # Download buttons
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if os.path.exists(graph_filename):
+                                        with open(graph_filename, "rb") as f:
+                                            st.download_button(
+                                                "📥 Download Graph",
+                                                f.read(),
+                                                file_name=f"graph_{test_data['test_id']}.png",
+                                                mime="image/png"
+                                            )
+                                
+                                with col2:
+                                    html_report = generate_html_report(test_data)
                                     st.download_button(
-                                        "📥 Download Graph",
-                                        f.read(),
-                                        file_name=f"graph_{test_data['test_id']}.png",
-                                        mime="image/png"
+                                        "📥 Download Report",
+                                        html_report,
+                                        file_name=f"report_{test_data['test_id']}.html",
+                                        mime="text/html"
                                     )
                         
-                        with col2:
-                            html_report = generate_html_report(test_data)
-                            st.download_button(
-                                "📥 Download Report",
-                                html_report,
-                                file_name=f"report_{test_data['test_id']}.html",
-                                mime="text/html"
-                            )
+                        except Exception as e:
+                            st.error(f"❌ Error during test: {str(e)}")
+                            logger.error(f"Test error: {str(e)}", exc_info=True)
+                        
+                        finally:
+                            st.session_state.test_running = False
+                            stop_test()
                 
-                except Exception as e:
-                    st.error(f"❌ Error during test: {str(e)}")
-                    logger.error(f"Test error: {str(e)}", exc_info=True)
-                
-                finally:
-                    st.session_state.test_running = False
-                    stop_test()
-        
-        else:
-            st.warning("⚠️ A test is currently running. Please wait or stop it.")
+                else:
+                    st.warning("⚠️ A test is currently running. Please wait or stop it.")
     
     with tab2:
         st.markdown("### 📊 Performance Analysis")
@@ -1900,6 +1899,7 @@ def cleanup():
         stop_test()
 
 atexit.register(cleanup)
+
 
 
 
