@@ -276,11 +276,32 @@ h1, h2, h3, h4, h5, h6 {
 """, unsafe_allow_html=True)
 
 
-# Configuration
+
+# Detect Render environment
+IS_RENDER = os.getenv('RENDER', 'false').lower() == 'true'
+RENDER_EXTERNAL_URL = os.getenv('RENDER_EXTERNAL_URL', '')
+
+# Configuration with Render support
 LOCUST_PORT = int(os.getenv("LOCUST_PORT", "8089").strip(' \\'))
 STREAMLIT_PORT = int(os.getenv("PORT", 8501))
-PUBLIC_HOST = os.getenv("PUBLIC_HOST", "localhost")  # Public hostname/IP
 
+# On Render, we need special handling
+if IS_RENDER:
+    PUBLIC_HOST = RENDER_EXTERNAL_URL.replace('https://', '').replace('http://', '') if RENDER_EXTERNAL_URL else os.getenv("PUBLIC_HOST", "localhost")
+    # Disable external Locust dashboard on Render
+    SHOW_LOCUST_DASHBOARD = False
+    # Use localhost for internal communication
+    LOCUST_HOST = "localhost"
+else:
+    PUBLIC_HOST = os.getenv("PUBLIC_HOST", "localhost")
+    SHOW_LOCUST_DASHBOARD = True
+    LOCUST_HOST = "localhost"
+
+# Log deployment info
+print(f"🚀 Starting EAII PTT in {'Render' if IS_RENDER else 'Local'} mode")
+print(f"📊 Streamlit port: {STREAMLIT_PORT}")
+print(f"🦗 Locust port: {LOCUST_PORT}")
+print(f"🌐 Public host: {PUBLIC_HOST}")
 
 # --- CONFIGURATION ---
 USER_DB_FILE = "user_credentials.json"
@@ -616,26 +637,48 @@ def get_public_dashboard_url():
     return f"http://{PUBLIC_HOST}:{LOCUST_PORT}"
 
 def start_locust_server(target_host):
-    """Start Locust server process publicly accessible."""
-    process = subprocess.Popen([
-        "locust", 
-        "-f", "locustfile.py", 
-        "--host", target_host, 
-        "--web-port", str(LOCUST_PORT),
-        "--web-host", "0.0.0.0"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    st.session_state.locust_process = process
-
-    # Force status active immediately
-    if 'system_stats' not in st.session_state:
-        st.session_state.system_stats = {}
-    st.session_state.system_stats.update({
-        'locust_active': True,
-        'last_updated': time.time()
-    })
-
-    return process
+    """Start Locust server process with Render-specific handling."""
+    try:
+        if IS_RENDER:
+            # On Render, we need to handle potential port conflicts
+            # Use subprocess.PIPE to capture output for debugging
+            process = subprocess.Popen([
+                "locust", 
+                "-f", "locustfile.py", 
+                "--host", target_host, 
+                "--web-port", str(LOCUST_PORT),
+                "--web-host", "0.0.0.0",
+                "--headless"  # Run in headless mode on Render
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            
+            # Wait a bit and check if it started
+            time.sleep(3)
+            if process.poll() is None:
+                st.session_state.locust_process = process
+                st.session_state.system_stats['locust_active'] = True
+                print(f"✅ Locust started successfully on port {LOCUST_PORT}")
+                return process
+            else:
+                stdout, stderr = process.communicate()
+                print(f"❌ Locust failed to start: {stderr}")
+                return None
+        else:
+            # Local development - original code
+            process = subprocess.Popen([
+                "locust", 
+                "-f", "locustfile.py", 
+                "--host", target_host, 
+                "--web-port", str(LOCUST_PORT),
+                "--web-host", "0.0.0.0"
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            st.session_state.locust_process = process
+            st.session_state.system_stats['locust_active'] = True
+            return process
+            
+    except Exception as e:
+        print(f"Error starting Locust: {e}")
+        return None
 
 
 
@@ -708,13 +751,25 @@ def stop_test():
 
 
 def fetch_stats():
-    """Fetch current statistics from Locust."""
-    try:
-        res = requests.get(f"http://localhost:{LOCUST_PORT}/stats/requests", timeout=5)
-        if res.status_code == 200:
-            return res.json()
-    except requests.exceptions.RequestException:
-        pass
+    """Fetch current statistics from Locust with Render support."""
+    # Try multiple possible Locust endpoints
+    possible_urls = [
+        f"http://localhost:{LOCUST_PORT}/stats/requests",
+        f"http://127.0.0.1:{LOCUST_PORT}/stats/requests",
+        f"http://0.0.0.0:{LOCUST_PORT}/stats/requests",
+    ]
+    
+    # On Render, also try the internal service name if using two services
+    if IS_RENDER:
+        possible_urls.insert(0, f"http://eaii-ptt-locust:{LOCUST_PORT}/stats/requests")
+    
+    for url in possible_urls:
+        try:
+            res = requests.get(url, timeout=2)
+            if res.status_code == 200:
+                return res.json()
+        except:
+            continue
     return None
 
 
@@ -749,18 +804,24 @@ def monitor_test(duration: int) -> pd.DataFrame:
     ramp_down_time = duration // 3
     
     # Validate durations
-    if ramp_time <= 0 or steady_time <= 0 or ramp_down_time <= 0:
-        logger.error("Invalid phase durations")
-        st.error("⚠️ Test duration too short - increase test duration")
-        return pd.DataFrame()
-
-    # Timeline calculation
-    start_time = time.time()
-    timeline = {
-        'ramp_up_end': start_time + ramp_time,
-        'steady_end': start_time + ramp_time + steady_time,
-        'test_end': start_time + duration
-    }
+    # In monitor_test function, replace the dashboard link section with:
+    if SHOW_LOCUST_DASHBOARD:
+        dashboard_placeholder.markdown(
+            f'<a href="{get_public_dashboard_url()}" target="_blank" class="dashboard-btn">📊 Open Live Performance Dashboard</a>',
+            unsafe_allow_html=True
+        )
+    else:
+        # On Render, show enhanced stats instead
+        dashboard_placeholder.markdown("""
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center;">
+            <h4 style="color: white; margin: 0;">📊 Live Performance Monitoring</h4>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">
+                Real-time metrics are displayed below. The full Locust dashboard 
+                is available when running locally.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
     
     # UI Setup with modern styling
     st.markdown("""
@@ -7249,4 +7310,5 @@ elif st.session_state.current_page == "About System":
         Unauthorized use, duplication, or distribution is strictly prohibited.
 
         **For technical support contact:** qa-support@eaii.gov.et
+
         """)
