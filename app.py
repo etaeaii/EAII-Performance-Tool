@@ -33,7 +33,7 @@ import sys
 import signal
 
 # ============================================================================
-# RENDER DEPLOYMENT CONFIGURATION (FIXED)
+# RENDER DEPLOYMENT CONFIGURATION
 # ============================================================================
 
 # Detect Render environment
@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 if IS_RENDER:
     PUBLIC_HOST = RENDER_EXTERNAL_URL.replace('https://', '').replace('http://', '') if RENDER_EXTERNAL_URL else os.getenv("PUBLIC_HOST", "localhost")
     SHOW_LOCUST_DASHBOARD = False
-    LOCUST_BIND_HOST = "0.0.0.0"  # Bind to all interfaces
+    LOCUST_BIND_HOST = "0.0.0.0"
     LOCUST_INTERNAL_URL = f"http://localhost:{LOCUST_PORT}"
     # Create persistent directories
     os.makedirs('/tmp/test_history', exist_ok=True)
@@ -90,16 +90,6 @@ st.set_page_config(
 # ============================================================================
 # CUSTOM CSS STYLES
 # ============================================================================
-
-HIDE_UI_CSS = """
-<style>
-#MainMenu {visibility: hidden;}
-header {visibility: hidden;}
-footer {visibility: hidden;}
-.stDeployButton {display: none;}
-.st-emotion-cache-zq5wmm {visibility: hidden;}
-</style>
-"""
 
 st.markdown("""
 <style>
@@ -351,7 +341,7 @@ if 'manual_stop' not in st.session_state:
     st.session_state.manual_stop = False
 
 # ============================================================================
-# HELPER FUNCTIONS (FIXED FOR RENDER)
+# HELPER FUNCTIONS
 # ============================================================================
 
 def get_rating_label(rating: int) -> str:
@@ -437,8 +427,6 @@ def verify_locust_installation():
     except Exception as e:
         logger.error(f"❌ Error checking Locust: {e}")
         return False, None
-        
-
 
 def validate_target_url(url):
     """Validate the target URL format"""
@@ -507,26 +495,8 @@ def get_test_config(test_type, users, spawn_rate, duration):
     return {"users": users, "spawn": spawn_rate, "duration": duration}
 
 # ============================================================================
-# LOCUST MANAGEMENT FUNCTIONS (FIXED FOR RENDER)
+# LOCUST MANAGEMENT FUNCTIONS
 # ============================================================================
-
-def verify_locust_installation():
-    """Verify that Locust is properly installed and accessible"""
-    try:
-        result = subprocess.run(["locust", "--version"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            version = result.stdout.strip()
-            logger.info(f"✅ Locust installed: {version}")
-            return True, version
-        else:
-            logger.error("❌ Locust command failed")
-            return False, None
-    except FileNotFoundError:
-        logger.error("❌ Locust not found in PATH")
-        return False, None
-    except Exception as e:
-        logger.error(f"❌ Error checking Locust: {e}")
-        return False, None
 
 def check_locust_status():
     """Check if Locust server is running with better error handling"""
@@ -588,14 +558,13 @@ def start_locust_server(target_host):
             "--web-port", str(LOCUST_PORT),
             "--web-host", LOCUST_BIND_HOST,
             "--headless",
-            "--only-summary"  # Reduce output
+            "--only-summary"
         ]
         
         logger.info(f"Starting Locust with command: {' '.join(locust_cmd)}")
         
         # Start Locust process
         if IS_RENDER:
-            # On Render, capture output for debugging
             process = subprocess.Popen(
                 locust_cmd,
                 stdout=subprocess.PIPE,
@@ -624,7 +593,6 @@ def start_locust_server(target_host):
                 return process
             else:
                 logger.error("❌ Locust process started but not responding")
-                # Try to get error output
                 if IS_RENDER:
                     try:
                         stdout, stderr = process.communicate(timeout=2)
@@ -634,7 +602,6 @@ def start_locust_server(target_host):
                         pass
                 return None
         else:
-            # Process died immediately
             if IS_RENDER:
                 stdout, stderr = process.communicate()
                 logger.error(f"❌ Locust failed to start:")
@@ -644,8 +611,6 @@ def start_locust_server(target_host):
             
     except Exception as e:
         logger.error(f"❌ Error starting Locust: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
         return None
 
 def trigger_test(users, spawn_rate, host):
@@ -662,7 +627,6 @@ def trigger_test(users, spawn_rate, host):
                 time.sleep(retry_delay)
                 continue
             
-            # Try to trigger the test
             response = requests.post(
                 f"http://localhost:{LOCUST_PORT}/swarm",
                 data={
@@ -705,9 +669,9 @@ def stop_test():
         # Kill the process
         if st.session_state.locust_process:
             try:
-                if os.name == 'nt':  # Windows
+                if os.name == 'nt':
                     st.session_state.locust_process.terminate()
-                else:  # Unix/Linux
+                else:
                     os.killpg(os.getpgid(st.session_state.locust_process.pid), signal.SIGTERM)
                 
                 st.session_state.locust_process.wait(timeout=5)
@@ -718,7 +682,6 @@ def stop_test():
             finally:
                 st.session_state.locust_process = None
         
-        # Update status
         st.session_state.system_stats.update({
             'locust_active': False,
             'last_updated': time.time()
@@ -762,7 +725,6 @@ def display_system_status():
         
         stats = st.session_state.system_stats
         
-        # CPU status
         cpu_class = "status-healthy" if stats['cpu'] <= 70 else \
                     "status-warning" if stats['cpu'] <= 90 else "status-critical"
         
@@ -773,7 +735,6 @@ def display_system_status():
         </div>
         """, unsafe_allow_html=True)
         
-        # Memory status
         mem_class = "status-healthy" if stats['memory'] <= 80 else \
                     "status-warning" if stats['memory'] <= 90 else "status-critical"
         
@@ -784,7 +745,6 @@ def display_system_status():
         </div>
         """, unsafe_allow_html=True)
         
-        # Network
         st.sidebar.markdown(f"""
         <div class="system-status">
             <span class="status-indicator status-healthy"></span>
@@ -792,7 +752,6 @@ def display_system_status():
         </div>
         """, unsafe_allow_html=True)
         
-        # Locust status
         locust_class = "status-healthy" if stats['locust_active'] else "status-critical"
         locust_text = "Active" if stats['locust_active'] else "Inactive"
         
@@ -808,13 +767,12 @@ def display_system_status():
         st.sidebar.error("⚠️ Status unavailable")
 
 # ============================================================================
-# MONITOR TEST FUNCTION (FIXED FOR RENDER)
+# MONITOR TEST FUNCTION
 # ============================================================================
 
 def monitor_test(duration: int) -> pd.DataFrame:
     """Monitor the test progress with enhanced UI and statistics collection."""
     
-    # Calculate test phases
     ramp_time = duration // 3
     steady_time = duration // 3
     ramp_down_time = duration // 3
@@ -823,7 +781,6 @@ def monitor_test(duration: int) -> pd.DataFrame:
         st.error("⚠️ Test duration too short - increase test duration")
         return pd.DataFrame()
     
-    # Timeline calculation
     start_time = time.time()
     timeline = {
         'ramp_up_end': start_time + ramp_time,
@@ -831,7 +788,6 @@ def monitor_test(duration: int) -> pd.DataFrame:
         'test_end': start_time + duration
     }
     
-    # UI Containers
     progress_placeholder = st.empty()
     phase_placeholder = st.empty()
     stats_placeholder = st.empty()
@@ -839,10 +795,8 @@ def monitor_test(duration: int) -> pd.DataFrame:
     notification_placeholder = st.empty()
     control_placeholder = st.container()
     
-    # Statistics collection
     stats = []
     
-    # Control buttons
     with control_placeholder:
         col1, col2 = st.columns(2)
         with col1:
@@ -859,7 +813,6 @@ def monitor_test(duration: int) -> pd.DataFrame:
             remaining = max(0, duration - elapsed)
             progress = min(max((elapsed / duration) * 100, 0), 100)
             
-            # Check for manual stop
             if st.session_state.get('manual_stop', False):
                 notification_placeholder.markdown("""
                 <div style="background: rgba(255, 171, 0, 0.15); padding: 15px; border-radius: 8px; border-left: 4px solid #FFAB00;">
@@ -869,7 +822,6 @@ def monitor_test(duration: int) -> pd.DataFrame:
                 st.session_state.test_running = False
                 break
             
-            # Determine current phase
             if current_time < timeline['ramp_up_end']:
                 phase = "Ramp-Up"
                 phase_color = "#6a00ff"
@@ -886,7 +838,6 @@ def monitor_test(duration: int) -> pd.DataFrame:
                 phase_progress = min(max(((elapsed - ramp_time - steady_time) / ramp_down_time) * 100, 0), 100)
                 phase_remaining = timeline['test_end'] - current_time
             
-            # Update progress display
             with progress_placeholder.container():
                 cols = st.columns(3)
                 with cols[0]:
@@ -911,7 +862,6 @@ def monitor_test(duration: int) -> pd.DataFrame:
                     </div>
                     """, unsafe_allow_html=True)
             
-            # Phase info
             with phase_placeholder.container():
                 st.markdown(f"""
                 <div style="display: flex; justify-content: space-between; background: rgba(106, 0, 255, 0.1); padding: 10px; border-radius: 8px;">
@@ -920,7 +870,6 @@ def monitor_test(duration: int) -> pd.DataFrame:
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Collect stats
             data = fetch_stats()
             if data and "stats" in data:
                 total = next((item for item in data["stats"] if item["name"] == "Total"), None)
@@ -942,7 +891,6 @@ def monitor_test(duration: int) -> pd.DataFrame:
                             use_container_width=True
                         )
             
-            # Dashboard link (conditional for Render)
             if SHOW_LOCUST_DASHBOARD:
                 dashboard_placeholder.markdown(
                     f'<a href="http://{PUBLIC_HOST}:{LOCUST_PORT}" target="_blank" class="dashboard-btn">📊 Open Live Performance Dashboard</a>',
@@ -956,9 +904,8 @@ def monitor_test(duration: int) -> pd.DataFrame:
                 </div>
                 """, unsafe_allow_html=True)
             
-            time.sleep(2)  # Update every 2 seconds
+            time.sleep(2)
         
-        # Test completed
         if time.time() >= timeline['test_end'] and st.session_state.get("test_running", False):
             notification_placeholder.markdown(f"""
             <div style="background: rgba(0, 200, 83, 0.15); padding: 15px; border-radius: 8px; border-left: 4px solid #00C853;">
@@ -1327,11 +1274,11 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
         return fig
 
 # ============================================================================
-# HTML REPORT FUNCTIONS (Simplified for brevity)
+# HTML REPORT FUNCTIONS
 # ============================================================================
 
 def generate_html_report(test_data):
-    """Generate HTML report (simplified version)."""
+    """Generate HTML report."""
     test_type = test_data.get("test_type", "Load Test")
     project_name = test_data.get("project_name", "Unnamed")
     test_id = test_data.get("test_id", str(uuid.uuid4())[:8])
@@ -1534,146 +1481,146 @@ if st.session_state.current_page == "Home":
             )
             st.caption(f"≈ {duration//60} minutes, {duration%60} seconds")
         
-                if not st.session_state.test_running:
-                    if st.button("🚀 Start Performance Test", type="primary", use_container_width=True):
-                        st.session_state.test_running = True
-                        st.session_state.config = get_test_config(test_type, users, spawn_rate, duration)
-                        st.session_state.project_name = project_name
-                        st.session_state.manual_stop = False
+        if not st.session_state.test_running:
+            if st.button("🚀 Start Performance Test", type="primary", use_container_width=True):
+                st.session_state.test_running = True
+                st.session_state.config = get_test_config(test_type, users, spawn_rate, duration)
+                st.session_state.project_name = project_name
+                st.session_state.manual_stop = False
+                
+                # Show test summary
+                with st.expander("Test Configuration", expanded=True):
+                    cols = st.columns(4)
+                    cols[0].metric("Project", project_name)
+                    cols[1].metric("Test Type", test_type)
+                    cols[2].metric("Users", st.session_state.config['users'])
+                    cols[3].metric("Duration", f"{st.session_state.config['duration']}s")
+                
+                # Progress indicators
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
+                    # Step 1: Check Locust
+                    status_text.text("🔍 Checking Locust installation...")
+                    locust_ok, version = verify_locust_installation()
+                    if not locust_ok:
+                        st.error("❌ Locust is not installed or not accessible")
+                        st.session_state.test_running = False
+                        st.stop()
+                    
+                    progress_bar.progress(25)
+                    
+                    # Step 2: Start Locust
+                    status_text.text("🚀 Starting Locust server...")
+                    process = start_locust_server(target_host)
+                    if not process:
+                        st.error("❌ Failed to start Locust server")
+                        st.session_state.test_running = False
+                        st.stop()
+                    
+                    progress_bar.progress(50)
+                    
+                    # Step 3: Trigger test
+                    status_text.text("🎯 Triggering test...")
+                    if not trigger_test(users, spawn_rate, target_host):
+                        st.error("❌ Failed to trigger test")
+                        st.session_state.test_running = False
+                        stop_test()
+                        st.stop()
+                    
+                    progress_bar.progress(75)
+                    status_text.text("📊 Test running...")
+                    
+                    # Step 4: Monitor test
+                    df_stats = monitor_test(duration)
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Test completed!")
+                    
+                    # Show results
+                    if not df_stats.empty:
+                        st.success("✅ Test completed successfully!")
+                        st.dataframe(df_stats, use_container_width=True)
                         
-                        # Show test summary
-                        with st.expander("Test Configuration", expanded=True):
-                            cols = st.columns(4)
-                            cols[0].metric("Project", project_name)
-                            cols[1].metric("Test Type", test_type)
-                            cols[2].metric("Users", st.session_state.config['users'])
-                            cols[3].metric("Duration", f"{st.session_state.config['duration']}s")
+                        # Calculate summary stats
+                        total_requests = df_stats["RPS"].sum() * (duration / len(df_stats))
+                        failures_rate = df_stats["Fail %"].mean()
+                        avg_rps = df_stats["RPS"].mean()
+                        avg_response = df_stats["Avg Response"].mean()
+                        p95_response = df_stats["95%ile"].mean()
                         
-                        # Progress indicators
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
+                        # Create test data
+                        test_data = {
+                            "test_id": str(uuid.uuid4()),
+                            "test_type": test_type,
+                            "project_name": project_name,
+                            "users": users,
+                            "duration": f"{duration} seconds",
+                            "start_time": datetime.now().isoformat(),
+                            "end_time": datetime.now().isoformat(),
+                            "stats": {
+                                "total_requests": total_requests,
+                                "failures_rate": failures_rate,
+                                "rps": avg_rps,
+                                "avg_response_time": avg_response,
+                                "p95_response_time": p95_response,
+                                "max_response_time": df_stats["Avg Response"].max()
+                            },
+                            "overall_status": "✅ Completed"
+                        }
                         
-                        try:
-                            # Step 1: Check Locust
-                            status_text.text("🔍 Checking Locust installation...")
-                            locust_ok, version = verify_locust_installation()
-                            if not locust_ok:
-                                st.error("❌ Locust is not installed or not accessible")
-                                st.session_state.test_running = False
-                                st.stop()
-                            
-                            progress_bar.progress(25)
-                            
-                            # Step 2: Start Locust
-                            status_text.text("🚀 Starting Locust server...")
-                            process = start_locust_server(target_host)
-                            if not process:
-                                st.error("❌ Failed to start Locust server")
-                                st.session_state.test_running = False
-                                st.stop()
-                            
-                            progress_bar.progress(50)
-                            
-                            # Step 3: Trigger test
-                            status_text.text("🎯 Triggering test...")
-                            if not trigger_test(users, spawn_rate, target_host):
-                                st.error("❌ Failed to trigger test")
-                                st.session_state.test_running = False
-                                stop_test()
-                                st.stop()
-                            
-                            progress_bar.progress(75)
-                            status_text.text("📊 Test running...")
-                            
-                            # Step 4: Monitor test
-                            df_stats = monitor_test(duration)
-                            
-                            progress_bar.progress(100)
-                            status_text.text("✅ Test completed!")
-                            
-                            # Show results
-                            if not df_stats.empty:
-                                st.success("✅ Test completed successfully!")
-                                st.dataframe(df_stats, use_container_width=True)
-                                
-                                # Calculate summary stats
-                                total_requests = df_stats["RPS"].sum() * (duration / len(df_stats))
-                                failures_rate = df_stats["Fail %"].mean()
-                                avg_rps = df_stats["RPS"].mean()
-                                avg_response = df_stats["Avg Response"].mean()
-                                p95_response = df_stats["95%ile"].mean()
-                                
-                                # Create test data
-                                test_data = {
-                                    "test_id": str(uuid.uuid4()),
-                                    "test_type": test_type,
-                                    "project_name": project_name,
-                                    "users": users,
-                                    "duration": f"{duration} seconds",
-                                    "start_time": datetime.now().isoformat(),
-                                    "end_time": datetime.now().isoformat(),
-                                    "stats": {
-                                        "total_requests": total_requests,
-                                        "failures_rate": failures_rate,
-                                        "rps": avg_rps,
-                                        "avg_response_time": avg_response,
-                                        "p95_response_time": p95_response,
-                                        "max_response_time": df_stats["Avg Response"].max()
-                                    },
-                                    "overall_status": "✅ Completed"
-                                }
-                                
-                                # Generate graph
-                                actual_performance = {
-                                    "Requests Per Second (RPS)": avg_rps,
-                                    "Average Response Time (ms)": avg_response,
-                                    "95th Percentile Response Time (ms)": p95_response,
-                                    "Max Response Time (ms)": df_stats["Avg Response"].max(),
-                                    "Failure Rate (%)": failures_rate
-                                }
-                                
-                                graph_dir = '/tmp/test_history' if IS_RENDER else 'test_history'
-                                os.makedirs(graph_dir, exist_ok=True)
-                                graph_filename = f"{graph_dir}/{test_data['test_id']}_graph.png"
-                                
-                                fig = generate_performance_graph(actual_performance, test_type, total_requests, failures_rate)
-                                fig.savefig(graph_filename, bbox_inches="tight", dpi=100)
-                                plt.close(fig)
-                                
-                                # Save history
-                                save_test_history(test_data, graph_filename)
-                                
-                                # Download buttons
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if os.path.exists(graph_filename):
-                                        with open(graph_filename, "rb") as f:
-                                            st.download_button(
-                                                "📥 Download Graph",
-                                                f.read(),
-                                                file_name=f"graph_{test_data['test_id']}.png",
-                                                mime="image/png"
-                                            )
-                                
-                                with col2:
-                                    html_report = generate_html_report(test_data)
+                        # Generate graph
+                        actual_performance = {
+                            "Requests Per Second (RPS)": avg_rps,
+                            "Average Response Time (ms)": avg_response,
+                            "95th Percentile Response Time (ms)": p95_response,
+                            "Max Response Time (ms)": df_stats["Avg Response"].max(),
+                            "Failure Rate (%)": failures_rate
+                        }
+                        
+                        graph_dir = '/tmp/test_history' if IS_RENDER else 'test_history'
+                        os.makedirs(graph_dir, exist_ok=True)
+                        graph_filename = f"{graph_dir}/{test_data['test_id']}_graph.png"
+                        
+                        fig = generate_performance_graph(actual_performance, test_type, total_requests, failures_rate)
+                        fig.savefig(graph_filename, bbox_inches="tight", dpi=100)
+                        plt.close(fig)
+                        
+                        # Save history
+                        save_test_history(test_data, graph_filename)
+                        
+                        # Download buttons
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if os.path.exists(graph_filename):
+                                with open(graph_filename, "rb") as f:
                                     st.download_button(
-                                        "📥 Download Report",
-                                        html_report,
-                                        file_name=f"report_{test_data['test_id']}.html",
-                                        mime="text/html"
+                                        "📥 Download Graph",
+                                        f.read(),
+                                        file_name=f"graph_{test_data['test_id']}.png",
+                                        mime="image/png"
                                     )
                         
-                        except Exception as e:
-                            st.error(f"❌ Error during test: {str(e)}")
-                            logger.error(f"Test error: {str(e)}", exc_info=True)
-                        
-                        finally:
-                            st.session_state.test_running = False
-                            stop_test()
+                        with col2:
+                            html_report = generate_html_report(test_data)
+                            st.download_button(
+                                "📥 Download Report",
+                                html_report,
+                                file_name=f"report_{test_data['test_id']}.html",
+                                mime="text/html"
+                            )
                 
-                else:
-                    st.warning("⚠️ A test is currently running. Please wait or stop it.")
+                except Exception as e:
+                    st.error(f"❌ Error during test: {str(e)}")
+                    logger.error(f"Test error: {str(e)}", exc_info=True)
+                
+                finally:
+                    st.session_state.test_running = False
+                    stop_test()
+        
+        else:
+            st.warning("⚠️ A test is currently running. Please wait or stop it.")
     
     with tab2:
         st.markdown("### 📊 Performance Analysis")
@@ -1899,7 +1846,3 @@ def cleanup():
         stop_test()
 
 atexit.register(cleanup)
-
-
-
-
