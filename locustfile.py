@@ -1,17 +1,13 @@
 from locust import HttpUser, task, between
 
-class QuickstartUser(HttpUser):
-    wait_time = between(1, 2)
-
-    def on_start(self):
-        self.client.post("/login", json={"username":"foo", "password":"bar"})
-
+class WebsiteUser(HttpUser):
+    wait_time = between(1, 3)
+    
     @task
-    def hello_world(self):
-        self.client.get("/hello")
-        self.client.get("/world")
-
+    def index(self):
+        self.client.get("/")
+    
     @task(3)
     def view_item(self):
-        for item_id in range(10):
-            self.client.get(f"/item?id={item_id}", name="/item")
+        item_id = 1
+        self.client.get(f"/item/{item_id}", name="/item/[id]")
