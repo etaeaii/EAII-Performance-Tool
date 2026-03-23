@@ -6689,11 +6689,15 @@ elif st.session_state.current_page == "Test History":
                         valid_tests = [t for t in imported_tests if isinstance(t, dict)]
                         if len(valid_tests) != len(imported_tests):
                             st.warning(f"Ignored {len(imported_tests)-len(valid_tests)} invalid entries.")
-
-                        # If no valid tests, stop
+                        
                         if not valid_tests:
                             st.warning("No valid test objects found.")
                         else:
+                            # Recalculate status for all valid tests
+                            for test in valid_tests:
+                                recompute_test_status(test)
+                            st.info("✅ Statuses have been recalculated based on performance standards.")
+                            # ... rest of the branch (continue with filtering, display, etc.)
                             # --- Summary stats ---
                             def get_status_category(status):
                                 status = str(status).lower()
