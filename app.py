@@ -347,7 +347,63 @@ def rating_float_to_label_and_class(rating_float: float, rating_counts=None, tot
     else:  # Excellent: 4.5+
         return "Healthy (Excellent)", "healthy", "⭐⭐⭐⭐⭐"
 
+def recompute_test_status(test_data):
+    """Recalculate overall status and rating for a test based on its metrics."""
+    # Extract test type and stats
+    test_type = test_data.get('test_type', 'Load')
+    stats = test_data.get('stats', {})
+    total_requests = stats.get('total_requests', 0)
+    failures_rate = stats.get('failures_rate', 0)
+    rps = stats.get('rps', 0)
+    avg_response = stats.get('avg_response_time', 0)
+    p95_response = stats.get('p95_response_time', 0)
+    max_response = stats.get('max_response_time', 0)
 
+    # Helper to get metric rating (1-5)
+    def get_rating(metric, value):
+        # Use performance standards for the test type
+        norm_type = test_type.lower()
+        if norm_type not in PERFORMANCE_STANDARDS:
+            norm_type = 'load'
+        standards = PERFORMANCE_STANDARDS[norm_type]['metrics']
+        if metric not in standards:
+            return 5  # default if metric not found
+        target = standards[metric]['target']
+        warning = standards[metric]['warning']
+        critical = standards[metric]['critical']
+        if metric == "Requests Per Second (RPS)":
+            if value >= target * 1.5:
+                return 5
+            elif value >= target:
+                return 4
+            elif value >= warning:
+                return 2
+            else:
+                return 1
+        else:  # response times or failure rate
+            if value <= target * 0.5:
+                return 5
+            elif value <= target:
+                return 4
+            elif value <= warning:
+                return 2
+            else:
+                return 1
+
+    # Get ratings for each metric
+    rps_rating = get_rating("Requests Per Second (RPS)", rps)
+    avg_rating = get_rating("Average Response Time (ms)", avg_response)
+    p95_rating = get_rating("95th Percentile Response Time (ms)", p95_response)
+    max_rating = get_rating("Max Response Time (ms)", max_response)
+    fail_rating = get_rating("Failure Rate (%)", failures_rate)
+
+    ratings = [rps_rating, avg_rating, p95_rating, max_rating, fail_rating]
+    overall_rating = sum(ratings) / len(ratings)
+    overall_label, overall_class, overall_stars = rating_float_to_label_and_class(overall_rating)
+
+    test_data['overall_status'] = overall_label
+    test_data['overall_rating'] = round(overall_rating, 1)
+    return test_data
 
 # Update ate_viz variable
 ate_viz = True
