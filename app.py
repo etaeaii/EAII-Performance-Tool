@@ -310,6 +310,22 @@ TEST_TYPE_DESCRIPTIONS = {
     "Concurrency Test": "Measures system performance with multiple simultaneous users."
 }
 
+
+
+# ADD THIS FUNCTION HERE - RIGHT AFTER THE DICTIONARY
+def get_test_type_description(test_type):
+    """Return the test type description for a canonical test type."""
+    test_type = normalize_test_type(test_type)
+    descriptions = {
+        "Load": "<p>Load testing evaluates system behavior under expected and peak load conditions. Measures throughput, response times, and resource utilization to identify performance bottlenecks at various load levels.</p><p><strong>Key Focus:</strong> Maximum operating capacity, breaking point identification, and performance under sustained load.</p>",
+        "Concurrency": "<p>Concurrency testing examines how the system handles multiple users performing the same or different actions simultaneously. Identifies race conditions, deadlocks, and thread synchronization issues.</p><p><strong>Key Focus:</strong> Multi-user scenarios, session management, and shared resource contention.</p>",
+        "Stress": "<p>Stress testing pushes the system beyond normal operational capacity to evaluate robustness and error handling under extreme conditions. Determines failure points and recovery mechanisms.</p><p><strong>Key Focus:</strong> System stability at beyond-peak loads, graceful degradation, and recovery procedures.</p>",
+        "Spike": "<p>Spike testing evaluates system behavior when subjected to sudden and extreme increases in load. Measures how quickly the system can scale and whether it can handle rapid fluctuations.</p><p><strong>Key Focus:</strong> Elasticity, auto-scaling capabilities, and response to sudden traffic bursts.</p>",
+        "Volume": "<p>Volume testing subjects the system to large amounts of data to verify stability and performance. Checks for memory leaks, storage limitations, and data processing efficiency.</p><p><strong>Key Focus:</strong> Database performance, memory management, and large dataset handling.</p>",
+        "Endurance": "<p>Endurance testing evaluates system reliability over extended periods. Identifies performance degradation, memory leaks, or resource exhaustion.</p><p><strong>Key Focus:</strong> Long-term stability, memory management, and sustained performance metrics.</p>"
+    }
+    return descriptions.get(test_type, descriptions["Load"])
+
 # === Rating label mapping derived from test results ===
 RATING_LABELS = {
     1: "Critical",
@@ -325,7 +341,6 @@ def get_rating_label(rating: int) -> str:
         return RATING_LABELS.get(int(rating), "Unknown")
     except Exception:
         return "Unknown"
-
 
 
 def rating_float_to_label_and_class(rating_float: float, rating_counts=None, total_metrics=None) -> tuple:
@@ -1336,12 +1351,13 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
     """Generate a performance dashboard with fallback on error."""
     try:
         # ========== CONFIGURATION ========== #
+        # Status mapping based on rating (1-5) to match table
         STATUS_CONFIG = {
-            "Excellent": {"threshold": 0.9, "color": "#00C853", "description": "Performance exceeding expectations"},
-            "Good": {"threshold": 0.75, "color": "#64DD17", "description": "Solid performance within targets"},
-            "Acceptable": {"threshold": 0.5, "color": "#FFD600", "description": "Performance meeting minimum requirements"},
-            "Warning": {"threshold": 0.25, "color": "#FF9100", "description": "Performance requires attention"},
-            "Critical": {"threshold": 0.0, "color": "#FF5252", "description": "Immediate action required"}
+            5: {"label": "Healthy (Excellent)", "color": "#00C853", "threshold": 4.5},
+            4: {"label": "Healthy (Good)", "color": "#64DD17", "threshold": 3.5},
+            3: {"label": "Healthy (Acceptable)", "color": "#FFA726", "threshold": 2.5},
+            2: {"label": "Warning", "color": "#FFD600", "threshold": 1.5},
+            1: {"label": "Critical", "color": "#FF5252", "threshold": 0.0}
         }
 
         STANDARDS = {
@@ -1414,6 +1430,37 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
             "text_color": "#212121", "secondary_text": "#616161", "border_color": "#BDBDBD"
         }
 
+        # Helper function to get rating (1-5) - same as table
+        def get_rating_for_metric(metric, value):
+            norm_type = test_type.lower().strip()
+            if norm_type not in STANDARDS:
+                norm_type = "load"
+            standards = STANDARDS[norm_type]["metrics"]
+            if metric not in standards:
+                return 5
+            target = standards[metric]["target"]
+            warning = standards[metric]["warning"]
+            critical = standards[metric]["critical"]
+            
+            if metric == "Requests Per Second (RPS)":
+                if value >= target * 1.5:
+                    return 5
+                elif value >= target:
+                    return 4
+                elif value >= warning:
+                    return 2
+                else:
+                    return 1
+            else:  # Response times or failure rate
+                if value <= target * 0.5:
+                    return 5
+                elif value <= target:
+                    return 4
+                elif value <= warning:
+                    return 2
+                else:
+                    return 1
+
         # Normalize test type
         normalized_test_type = test_type.lower().strip()
         matched_test = None
@@ -1422,7 +1469,7 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
                 matched_test = test_key
                 break
         if not matched_test:
-            matched_test = "load"   # fallback
+            matched_test = "load"
 
         test_config = STANDARDS[matched_test]
         metrics_config = test_config["metrics"]
@@ -1445,8 +1492,9 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
         targets = []
         warnings = []
         criticals = []
-        statuses = []
+        ratings = []
         status_colors = []
+        status_labels = []
 
         for metric, config in metrics_config.items():
             if metric in standardized_data:
@@ -1455,29 +1503,20 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
                 warning = config["warning"]
                 critical = config["critical"]
 
-                # Calculate performance ratio
-                if metric == 'Failure Rate (%)':
-                    ratio = 1 - (actual_value / max(1, critical))
-                else:
-                    if 'Response Time' in metric:
-                        ratio = target / max(1, actual_value)
-                    else:
-                        ratio = actual_value / max(1, target)
-
-                # Determine status
-                status = "Critical"
-                for level_name, level_config in STATUS_CONFIG.items():
-                    if ratio >= level_config["threshold"]:
-                        status = level_name
-                        break
-
                 metrics.append(metric)
                 actual_values.append(actual_value)
                 targets.append(target)
                 warnings.append(warning)
                 criticals.append(critical)
-                statuses.append(status)
-                status_colors.append(STATUS_CONFIG[status]["color"])
+                
+                # Get rating using same logic as table
+                rating = get_rating_for_metric(metric, actual_value)
+                ratings.append(rating)
+                
+                # Get color and label from STATUS_CONFIG
+                status_config = STATUS_CONFIG[rating]
+                status_colors.append(status_config["color"])
+                status_labels.append(status_config["label"])
 
         # ========== VISUALIZATION ========== #
         plt.style.use('default')
@@ -1494,9 +1533,12 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
             bar.set_path_effects([patheffects.SimpleLineShadow(offset=(0.5, -0.5)),
                                   patheffects.Normal()])
 
-        for i, (value, status) in enumerate(zip(actual_values, statuses)):
+        # Add value labels with status text (no stars)
+        for i, (value, rating, metric_name, status_label) in enumerate(zip(actual_values, ratings, metrics, status_labels)):
+            suffix = "%" if metric_name == "Failure Rate (%)" else ""
+            # Display: value (Status) - no stars
             ax.text(value + max(targets)*0.02, i,
-                    f'{value:.0f}{"%" if metrics[i] == "Failure Rate (%)" else ""}\n({status})',
+                    f'{value:.0f}{suffix}\n({status_label})',
                     va='center', ha='left',
                     fontsize=UI_CONFIG["value_fontsize"], fontweight='bold',
                     color=UI_CONFIG["text_color"], linespacing=1.2,
@@ -1504,17 +1546,18 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
                               edgecolor=UI_CONFIG["border_color"],
                               boxstyle='round,pad=0.3'))
 
+        # Add target, warning, critical lines
         for i, (target, warning, critical) in enumerate(zip(targets, warnings, criticals)):
             ax.fill_betweenx([i-0.3, i+0.3], target, warning,
-                             color=STATUS_CONFIG["Warning"]["color"], alpha=0.1, zorder=1)
+                             color=STATUS_CONFIG[2]["color"], alpha=0.1, zorder=1)
             ax.fill_betweenx([i-0.3, i+0.3], warning, critical,
-                             color=STATUS_CONFIG["Critical"]["color"], alpha=0.1, zorder=1)
+                             color=STATUS_CONFIG[1]["color"], alpha=0.1, zorder=1)
 
             if metrics[i] == 'Failure Rate (%)':
                 for val, label, color in [
                     (target, 'TARGET', UI_CONFIG["text_color"]),
-                    (warning, 'WARNING', STATUS_CONFIG["Warning"]["color"]),
-                    (critical, 'CRITICAL', STATUS_CONFIG["Critical"]["color"])
+                    (warning, 'WARNING', STATUS_CONFIG[2]["color"]),
+                    (critical, 'CRITICAL', STATUS_CONFIG[1]["color"])
                 ]:
                     ax.text(val, i+0.4, label, ha='center', va='bottom',
                             color=color, fontsize=UI_CONFIG["value_fontsize"]-1,
@@ -1541,15 +1584,16 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
                 transform=ax.transAxes, ha='center', va='bottom',
                 fontsize=UI_CONFIG["metric_fontsize"], color=UI_CONFIG["secondary_text"])
 
+        # Legend using rating system (1-5) without stars
         legend_elements = []
-        for level_name, level_config in STATUS_CONFIG.items():
+        for rating in [5, 4, 3, 2, 1]:
             legend_elements.append(
-                Patch(facecolor=level_config["color"], edgecolor='white',
-                      label=f"{level_name}: {level_config['description']}")
+                Patch(facecolor=STATUS_CONFIG[rating]["color"], edgecolor='white',
+                      label=f"{STATUS_CONFIG[rating]['label']}")
             )
         legend_elements.extend([
-            Patch(facecolor=STATUS_CONFIG["Warning"]["color"], alpha=0.1, label='Warning Zone'),
-            Patch(facecolor=STATUS_CONFIG["Critical"]["color"], alpha=0.1, label='Critical Zone')
+            Patch(facecolor=STATUS_CONFIG[2]["color"], alpha=0.1, label='Warning Zone'),
+            Patch(facecolor=STATUS_CONFIG[1]["color"], alpha=0.1, label='Critical Zone')
         ])
 
         ax.legend(handles=legend_elements, loc='lower center',
@@ -1562,9 +1606,7 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
         return fig
 
     except Exception as e:
-        # Log the error (optional)
         print(f"Error generating performance graph: {e}")
-        # Create a fallback figure with error message
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.text(0.5, 0.5, f"Graph generation failed.\nError: {e}",
                 ha='center', va='center', fontsize=14, color='red',
@@ -2560,108 +2602,67 @@ elif st.session_state.current_page == "Test History":
     # --- Performance standards definitions (copied from original) ---
     PERFORMANCE_STANDARDS = {
         "load": {
-            "display_name": "Load Test",
-            "metrics": {
-                "Requests Per Second (RPS)": {"target": 500, "warning": 400, "critical": 300},
-                "Median Response Time (ms)": {"target": 300, "warning": 500, "critical": 800},
-                "95th Percentile Response Time (ms)": {"target": 800, "warning": 1000, "critical": 1500},
-                "Average Response Time (ms)": {"target": 300, "warning": 500, "critical": 800},
-                "Max Response Time (ms)": {"target": 4000, "warning": 6000, "critical": 10000},
-                "Failure Rate (%)": {"target": 0, "warning": 3, "critical": 5}
+                "display_name": "Load Test",
+                "metrics": {
+                    "Requests Per Second (RPS)": {"target": 500, "warning": 400, "critical": 300},
+                    "95th Percentile Response Time (ms)": {"target": 800, "warning": 1000, "critical": 1500},
+                    "Average Response Time (ms)": {"target": 300, "warning": 500, "critical": 800},
+                    "Max Response Time (ms)": {"target": 4000, "warning": 6000, "critical": 10000},
+                    "Failure Rate (%)": {"target": 0, "warning": 3, "critical": 5}
+                }
             },
-            "health_weights": {
-                "base_score": 0.5,
-                "failure_rate_score": 0.3,
-                "trend_score": 0.2
+            "concurrency": {
+                "display_name": "Concurrency Test",
+                "metrics": {
+                    "Requests Per Second (RPS)": {"target": 280, "warning": 200, "critical": 150},
+                    "95th Percentile Response Time (ms)": {"target": 900, "warning": 1200, "critical": 1800},
+                    "Average Response Time (ms)": {"target": 400, "warning": 600, "critical": 800},
+                    "Max Response Time (ms)": {"target": 5000, "warning": 7000, "critical": 10000},
+                    "Failure Rate (%)": {"target": 0, "warning": 5, "critical": 8}
+                }
             },
-            "failures_rate": [0.5, 2.0]  # [warning_threshold, critical_threshold]
-        },
-        "concurrency": {
-            "display_name": "Concurrency Test",
-            "metrics": {
-                "Requests Per Second (RPS)": {"target": 280, "warning": 200, "critical": 150},
-                "Median Response Time (ms)": {"target": 400, "warning": 600, "critical": 800},
-                "95th Percentile Response Time (ms)": {"target": 900, "warning": 1200, "critical": 1800},
-                "Average Response Time (ms)": {"target": 400, "warning": 600, "critical": 800},
-                "Max Response Time (ms)": {"target": 5000, "warning": 7000, "critical": 10000},
-                "Failure Rate (%)": {"target": 0, "warning": 5, "critical": 8}
+            "spike": {
+                "display_name": "Spike Test",
+                "metrics": {
+                    "Requests Per Second (RPS)": {"target": 350, "warning": 250, "critical": 150},
+                    "95th Percentile Response Time (ms)": {"target": 1200, "warning": 1800, "critical": 2500},
+                    "Average Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
+                    "Max Response Time (ms)": {"target": 6000, "warning": 9000, "critical": 15000},
+                    "Failure Rate (%)": {"target": 0, "warning": 10, "critical": 15}
+                }
             },
-            "health_weights": {
-                "base_score": 0.5,
-                "failure_rate_score": 0.3,
-                "trend_score": 0.2
+            "volume": {
+                "display_name": "Volume Test",
+                "metrics": {
+                    "Requests Per Second (RPS)": {"target": 400, "warning": 300, "critical": 200},
+                    "95th Percentile Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
+                    "Average Response Time (ms)": {"target": 200, "warning": 300, "critical": 500},
+                    "Max Response Time (ms)": {"target": 3000, "warning": 5000, "critical": 8000},
+                    "Failure Rate (%)": {"target": 0, "warning": 1, "critical": 3}
+                }
             },
-            "failures_rate": [0.5, 2.0]
-        },
-        "spike": {
-            "display_name": "Spike Test",
-            "metrics": {
-                "Requests Per Second (RPS)": {"target": 350, "warning": 250, "critical": 150},
-                "Median Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
-                "95th Percentile Response Time (ms)": {"target": 1200, "warning": 1800, "critical": 2500},
-                "Average Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
-                "Max Response Time (ms)": {"target": 6000, "warning": 9000, "critical": 15000},
-                "Failure Rate (%)": {"target": 0, "warning": 10, "critical": 15}
+            "stress": {
+                "display_name": "Stress Test",
+                "metrics": {
+                    "Requests Per Second (RPS)": {"target": 200, "warning": 150, "critical": 100},
+                    "95th Percentile Response Time (ms)": {"target": 2000, "warning": 3000, "critical": 5000},
+                    "Average Response Time (ms)": {"target": 800, "warning": 1200, "critical": 2000},
+                    "Max Response Time (ms)": {"target": 10000, "warning": 15000, "critical": 30000},
+                    "Failure Rate (%)": {"target": 0, "warning": 15, "critical": 20}
+                }
             },
-            "health_weights": {
-                "base_score": 0.5,
-                "failure_rate_score": 0.3,
-                "trend_score": 0.2
-            },
-            "failures_rate": [0.5, 2.0]
-        },
-        "volume": {
-            "display_name": "Volume Test",
-            "metrics": {
-                "Requests Per Second (RPS)": {"target": 400, "warning": 300, "critical": 250},
-                "Median Response Time (ms)": {"target": 200, "warning": 300, "critical": 500},
-                "95th Percentile Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
-                "Average Response Time (ms)": {"target": 200, "warning": 300, "critical": 500},
-                "Max Response Time (ms)": {"target": 3000, "warning": 5000, "critical": 8000},
-                "Failure Rate (%)": {"target": 0, "warning": 1, "critical": 3}
-            },
-            "health_weights": {
-                "base_score": 0.5,
-                "failure_rate_score": 0.3,
-                "trend_score": 0.2
-            },
-            "failures_rate": [0.5, 2.0]
-        },
-        "stress": {
-            "display_name": "Stress Test",
-            "metrics": {
-                "Requests Per Second (RPS)": {"target": 200, "warning": 150, "critical": 100},
-                "Median Response Time (ms)": {"target": 800, "warning": 1200, "critical": 2000},
-                "95th Percentile Response Time (ms)": {"target": 2000, "warning": 3000, "critical": 5000},
-                "Average Response Time (ms)": {"target": 800, "warning": 1200, "critical": 2000},
-                "Max Response Time (ms)": {"target": 10000, "warning": 15000, "critical": 30000},
-                "Failure Rate (%)": {"target": 0, "warning": 15, "critical": 20}
-            },
-            "health_weights": {
-                "base_score": 0.5,
-                "failure_rate_score": 0.3,
-                "trend_score": 0.2
-            },
-            "failures_rate": [0.5, 2.0]
-        },
-        "endurance": {
-            "display_name": "Endurance Test",
-            "metrics": {
-                "Requests Per Second (RPS)": {"target": 150, "warning": 100, "critical": 50},
-                "Median Response Time (ms)": {"target": 400, "warning": 600, "critical": 1000},
-                "95th Percentile Response Time (ms)": {"target": 1000, "warning": 1500, "critical": 2500},
-                "Average Response Time (ms)": {"target": 400, "warning": 600, "critical": 1000},
-                "Max Response Time (ms)": {"target": 5000, "warning": 8000, "critical": 15000},
-                "Failure Rate (%)": {"target": 0, "warning": 5, "critical": 10}
-            },
-            "health_weights": {
-                "base_score": 0.5,
-                "failure_rate_score": 0.3,
-                "trend_score": 0.2
-            },
-            "failures_rate": [0.5, 2.0]
+            "endurance": {
+                "display_name": "Endurance Test",
+                "metrics": {
+                    "Requests Per Second (RPS)": {"target": 150, "warning": 100, "critical": 50},
+                    "95th Percentile Response Time (ms)": {"target": 1000, "warning": 1500, "critical": 2500},
+                    "Average Response Time (ms)": {"target": 400, "warning": 600, "critical": 1000},
+                    "Max Response Time (ms)": {"target": 5000, "warning": 8000, "critical": 15000},
+                    "Failure Rate (%)": {"target": 0, "warning": 5, "critical": 10}
+                }
+            }
         }
-    }
+
 
     CSS_STYLES = """
     /* Base Styles */
@@ -5065,7 +5066,7 @@ elif st.session_state.current_page == "Test History":
             "volume": {
                 "display_name": "Volume Test",
                 "metrics": {
-                    "Requests Per Second (RPS)": {"target": 450, "warning": 400, "critical": 300},
+                    "Requests Per Second (RPS)": {"target": 400, "warning": 300, "critical": 200},
                     "95th Percentile Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
                     "Average Response Time (ms)": {"target": 200, "warning": 300, "critical": 500},
                     "Max Response Time (ms)": {"target": 3000, "warning": 5000, "critical": 8000},
@@ -5093,6 +5094,7 @@ elif st.session_state.current_page == "Test History":
                 }
             }
         }
+
 
         # Status and rating logic
         def get_status_and_rating(metric, value, total_requests):
@@ -6689,15 +6691,16 @@ elif st.session_state.current_page == "Test History":
                         valid_tests = [t for t in imported_tests if isinstance(t, dict)]
                         if len(valid_tests) != len(imported_tests):
                             st.warning(f"Ignored {len(imported_tests)-len(valid_tests)} invalid entries.")
-                        
+
+                        # Normalize test types for all tests - FIXED: use normalize_test_type directly
+                        for t in valid_tests:
+                            raw_type = t.get('test_type', 'Load')
+                            t['test_type'] = normalize_test_type(raw_type)
+
+                        # If no valid tests, stop
                         if not valid_tests:
                             st.warning("No valid test objects found.")
                         else:
-                            # Recalculate status for all valid tests
-                            for test in valid_tests:
-                                recompute_test_status(test)
-                            st.info("✅ Statuses have been recalculated based on performance standards.")
-                            # ... rest of the branch (continue with filtering, display, etc.)
                             # --- Summary stats ---
                             def get_status_category(status):
                                 status = str(status).lower()
@@ -6789,7 +6792,13 @@ elif st.session_state.current_page == "Test History":
                                         st.metric("Users", test.get('users', 'Unknown'))
 
                                     with cols[1]:
-                                        st.metric("Duration", f"{test.get('duration', 0)} s")
+                                        # Handle duration formatting dynamically
+                                        duration_raw = test.get('duration', 0)
+                                        if isinstance(duration_raw, (int, float)):
+                                            duration_display = f"{duration_raw} s"
+                                        else:
+                                            duration_display = str(duration_raw)
+                                        st.metric("Duration", duration_display)
                                         st.metric("Requests", total_requests)
 
                                     with cols[2]:
@@ -6799,6 +6808,12 @@ elif st.session_state.current_page == "Test History":
                                     with cols[3]:
                                         st.metric("Fail Rate", f"{failures_rate:.1f}%")
                                         st.metric("95th %ile", f"{p95_response:.1f} ms")
+
+                                    # --- DYNAMIC TEST DESCRIPTION (based on test_type from JSON) ---
+                                    # Get canonical test type for description lookup - FIXED: use normalize_test_type
+                                    canonical_type = normalize_test_type(test_type)
+                                    description_html = get_test_type_description(canonical_type)
+                                    st.markdown("---")
 
                                     # --- Buttons for individual test ---
                                     col_btn1, col_btn2 = st.columns(2)
