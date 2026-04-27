@@ -420,44 +420,30 @@ def recompute_test_status(test_data):
     test_data['overall_rating'] = round(overall_rating, 1)
     return test_data
 
-# Update ate_viz variable
-ate_viz = True
-    
+# --- SESSION STATE INIT ---
 if 'config' not in st.session_state:
-    st.session_state.config = {}  # Initialize config to avoid AttributeError
-    
+    st.session_state.config = {}
+
 if 'test_results' not in st.session_state:
     st.session_state.test_results = None
-    
+
 if 'test_error' not in st.session_state:
     st.session_state.test_error = None
-    
-if 'locust_output' not in st.session_state:
-    st.session_state.locust_output = ""# --- SESSION STATE INIT ---
-    
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = "Home"
-    
-if 'test_running' not in st.session_state:
-    st.session_state.test_running = False
-    
-if 'locust_process' not in st.session_state:
-    st.session_state.locust_process = None
-    
-if 'generate_viz' not in st.session_state:
-    st.session_state.generate_viz = False
-    
-if 'config' not in st.session_state:
-    st.session_state.config = {}  # Initialize config to avoid AttributeError
-    
-if 'test_results' not in st.session_state:
-    st.session_state.test_results = None
-    
-if 'test_error' not in st.session_state:
-    st.session_state.test_error = None
-    
+
 if 'locust_output' not in st.session_state:
     st.session_state.locust_output = ""
+
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "Home"
+
+if 'test_running' not in st.session_state:
+    st.session_state.test_running = False
+
+if 'locust_process' not in st.session_state:
+    st.session_state.locust_process = None
+
+if 'generate_viz' not in st.session_state:
+    st.session_state.generate_viz = False
 
 if 'system_stats' not in st.session_state:
     st.session_state.system_stats = {
@@ -468,23 +454,14 @@ if 'system_stats' not in st.session_state:
         'last_updated': 0
     }
 
-# Add initialization for selected_test_type
 if 'selected_test_type' not in st.session_state:
-    st.session_state.selected_test_type = list(MAX_USERS_LIMITS.keys())[0]  # Default to the first test type
+    st.session_state.selected_test_type = list(MAX_USERS_LIMITS.keys())[0]
 
-# Initialize session state
 if 'show_record_management' not in st.session_state:
     st.session_state.show_record_management = False
 
-# Initialize session state variables if not already set
-if "test_saved" not in st.session_state:
+if 'test_saved' not in st.session_state:
     st.session_state.test_saved = False
-if "generate_viz" not in st.session_state:
-    st.session_state.generate_viz = False
-if "locust_process" not in st.session_state:
-    st.session_state.locust_process = None
-if "test_running" not in st.session_state:
-    st.session_state.test_running = False
 
 # --- HELPER FUNCTIONS ---
 
@@ -1326,8 +1303,16 @@ def display_test_history():
                 st.metric("95th %ile", f"{test['stats'].get('p95_response_time', 0):.1f} ms")
 
             # Generate and display report
+            report_style = st.selectbox(
+                "Report style",
+                ["Individual", "During Project"],
+                key=f"report_style_{test['test_id']}"
+            )
             if st.button(f"📄 Generate Report for {test['test_id']}"):
-                html_report = generate_html_report(test)
+                if report_style == "Individual":
+                    html_report = generate_html_report_from_test(test, report_style=report_style)
+                else:
+                    html_report = generate_html_report(test, report_style=report_style)
                 st.download_button(
                     label="⬇️ Download HTML Report",
                     data=html_report,
@@ -1616,8 +1601,9 @@ def generate_performance_graph(actual_performance, test_type, total_requests, fa
         return fig
 
 
-def generate_html_report(test_data):
+def generate_html_report(test_data, report_style="During Project"):
     """Generate HTML report with concise next steps for critical issues."""
+    report_context = "During Project Report" if report_style == "During Project" else "Individual Test Report"
     # Normalize test_type
     test_type_mapping = {
         "load": "Load",
@@ -1640,6 +1626,14 @@ def generate_html_report(test_data):
         # Normalize duration to a human-friendly minutes string
         duration_display = format_duration_display(duration)
 
+        def format_speed_field(value):
+            if value is None:
+                return "Unknown"
+            value_str = str(value).strip()
+            if value_str.lower().endswith("mbps"):
+                return value_str
+            return f"{value_str} Mbps"
+
         return {
             "test_type": test_type,
             "project_name": test_data.get("project_name", "Unnamed Project"),
@@ -1647,6 +1641,13 @@ def generate_html_report(test_data):
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M %p"),
             "users": "Unknown" if users is None or users <= 0 else str(users),
             "duration": duration_display,
+            "ram": str(test_data.get("ram", test_data.get("system_ram", "64 GB"))),
+            "cpu": str(test_data.get("cpu", test_data.get("system_cpu", "32"))),
+            "hard_disk": str(test_data.get("hard_disk", test_data.get("system_disk", "750 GB"))),
+            "operating_system": str(test_data.get("operating_system", test_data.get("system_os", "Linux"))),
+            "deployment": str(test_data.get("deployment", "Cloud Services")),
+            "download_speed": format_speed_field(test_data.get("download_speed", test_data.get("download_speed", 13.78))),
+            "upload_speed": format_speed_field(test_data.get("upload_speed", test_data.get("upload_speed", 31.37))),
             "warnings": get_data_warnings(users, duration)
         }
 
@@ -1680,7 +1681,15 @@ def generate_html_report(test_data):
     timestamp = metadata["timestamp"]
     users_display = metadata["users"]
     duration_display = metadata["duration"]
+    ram = metadata.get("ram", "64 GB")
+    cpu = metadata.get("cpu", "32")
+    hard_disk = metadata.get("hard_disk", "750 GB")
+    operating_system = metadata.get("operating_system", "Linux")
+    deployment = metadata.get("deployment", "Cloud Services")
+    download_speed = metadata.get("download_speed", "13.78 Mbps")
+    upload_speed = metadata.get("upload_speed", "31.37 Mbps")
     warnings = metadata["warnings"]
+    report_context = "During Project Report" if report_style == "During Project" else "Individual Test Report"
 
     metrics = extract_performance_metrics()
     total_requests = metrics["total_requests"]
@@ -1746,7 +1755,7 @@ def generate_html_report(test_data):
                 "95th Percentile Response Time (ms)": {"target": 800, "warning": 1000, "critical": 1500},
                 "Average Response Time (ms)": {"target": 300, "warning": 500, "critical": 800},
                 "Max Response Time (ms)": {"target": 4000, "warning": 6000, "critical": 10000},
-                "Failure Rate (%)": {"target": 0, "warning": 3, "critical": 5}
+                "Failure Rate (%)": {"target": 1, "warning": 3, "critical": 5}
             }
         },
         "concurrency": {
@@ -1756,7 +1765,7 @@ def generate_html_report(test_data):
                 "95th Percentile Response Time (ms)": {"target": 900, "warning": 1200, "critical": 1800},
                 "Average Response Time (ms)": {"target": 400, "warning": 600, "critical": 800},
                 "Max Response Time (ms)": {"target": 5000, "warning": 7000, "critical": 10000},
-                "Failure Rate (%)": {"target": 0, "warning": 5, "critical": 8}
+                "Failure Rate (%)": {"target": 1, "warning": 5, "critical": 8}
             }
         },
         "spike": {
@@ -1766,7 +1775,7 @@ def generate_html_report(test_data):
                 "95th Percentile Response Time (ms)": {"target": 1200, "warning": 1800, "critical": 2500},
                 "Average Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
                 "Max Response Time (ms)": {"target": 6000, "warning": 9000, "critical": 15000},
-                "Failure Rate (%)": {"target": 0, "warning": 10, "critical": 15}
+                "Failure Rate (%)": {"target": 1, "warning": 10, "critical": 15}
             }
         },
         "volume": {
@@ -1776,7 +1785,7 @@ def generate_html_report(test_data):
                 "95th Percentile Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
                 "Average Response Time (ms)": {"target": 200, "warning": 300, "critical": 500},
                 "Max Response Time (ms)": {"target": 3000, "warning": 5000, "critical": 8000},
-                "Failure Rate (%)": {"target": 0, "warning": 1, "critical": 3}
+                "Failure Rate (%)": {"target": 1, "warning": 3, "critical": 5}
             }
         },
         "stress": {
@@ -1786,7 +1795,7 @@ def generate_html_report(test_data):
                 "95th Percentile Response Time (ms)": {"target": 2000, "warning": 3000, "critical": 5000},
                 "Average Response Time (ms)": {"target": 800, "warning": 1200, "critical": 2000},
                 "Max Response Time (ms)": {"target": 10000, "warning": 15000, "critical": 30000},
-                "Failure Rate (%)": {"target": 0, "warning": 15, "critical": 20}
+                "Failure Rate (%)": {"target": 1, "warning": 15, "critical": 20}
             }
         },
         "endurance": {
@@ -1796,7 +1805,7 @@ def generate_html_report(test_data):
                 "95th Percentile Response Time (ms)": {"target": 1000, "warning": 1500, "critical": 2500},
                 "Average Response Time (ms)": {"target": 400, "warning": 600, "critical": 1000},
                 "Max Response Time (ms)": {"target": 5000, "warning": 8000, "critical": 15000},
-                "Failure Rate (%)": {"target": 0, "warning": 5, "critical": 10}
+                "Failure Rate (%)": {"target": 1, "warning": 5, "critical": 10}
             }
         }
     }
@@ -2071,11 +2080,82 @@ def generate_html_report(test_data):
         print(f"Failed to generate graph for test {test_id}: {e}")
         graph_filename = ""
 
+    graph_img_html = "<p>No performance graph available.</p>"
+    if graph_filename and os.path.exists(graph_filename):
+        with open(graph_filename, 'rb') as gf:
+            graph_base64 = base64.b64encode(gf.read()).decode('utf-8')
+        graph_img_html = f'<img src="data:image/png;base64,{graph_base64}" alt="Performance Graph" style="max-width:100%; border-radius: 10px;" />'
+
+    # Build HTML report content
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Performance Report {test_id}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; color: #222; background: #f8f9fb; }}
+            h1, h2 {{ color: #0d47a1; }}
+            .section {{ margin-bottom: 20px; padding: 18px; background: white; border-radius: 10px; box-shadow: 0 0 12px rgba(0,0,0,0.06); }}
+            .section h2 {{ margin-top: 0; }}
+            .field-grid {{ display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 14px; }}
+            .field {{ background: #f1f5fb; padding: 12px 14px; border-radius: 8px; }}
+            .field label {{ display: block; font-weight: bold; margin-bottom: 6px; color: #0d47a1; }}
+            .metric-grid {{ display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 14px; margin-top: 10px; }}
+            .metric {{ background: #e8f0fe; padding: 14px; border-radius: 10px; text-align: center; }}
+            .metric span {{ display: block; font-size: 1.6rem; font-weight: bold; margin-top: 8px; color: #0d47a1; }}
+            .graph {{ margin-top: 20px; text-align: center; }}
+            .footer {{ margin-top: 30px; font-size: 0.95rem; color: #555; }}
+        </style>
+    </head>
+    <body>
+        <h1>{test_type} Test Report</h1>
+        <div class="section">
+            <h2>Test Summary</h2>
+            <div class="field-grid">
+                <div class="field"><label>Project</label>{project_name}</div>
+                <div class="field"><label>Test ID</label>{test_id}</div>
+                <div class="field"><label>Date</label>{timestamp}</div>
+                <div class="field"><label>Users</label>{users_display}</div>
+                <div class="field"><label>Duration</label>{duration_display}</div>
+                <div class="field"><label>RAM</label>{ram}</div>
+                <div class="field"><label>CPU Cores</label>{cpu}</div>
+                <div class="field"><label>Hard Disk</label>{hard_disk}</div>
+                <div class="field"><label>Operating System</label>{operating_system}</div>
+                <div class="field"><label>Deployment</label>{deployment}</div>
+                <div class="field"><label>Download Speed</label>{download_speed}</div>
+                <div class="field"><label>Upload Speed</label>{upload_speed}</div>
+            </div>
+        </div>
+        <div class="section">
+            <h2>Performance Metrics</h2>
+            <div class="metric-grid">
+                <div class="metric"><label>Total Requests</label><span>{total_requests}</span></div>
+                <div class="metric"><label>RPS</label><span>{rps:.1f}</span></div>
+                <div class="metric"><label>Avg Response</label><span>{avg_response:.1f} ms</span></div>
+                <div class="metric"><label>P95 Response</label><span>{p95_response:.1f} ms</span></div>
+                <div class="metric"><label>Max Response</label><span>{max_response:.1f} ms</span></div>
+                <div class="metric"><label>Failure Rate</label><span>{failures_rate:.2f}%</span></div>
+            </div>
+        </div>
+        <div class="section graph">
+            <h2>Performance Graph</h2>
+            {graph_img_html}
+        </div>
+        <div class="footer">
+            <p>Generated by EAII Performance Testing Tool.</p>
+        </div>
+    </body>
+    </html>
+    """
+
     # Save test history
     try:
         save_test_history(test_data, graph_filename)
     except Exception as e:
         print(f"Failed to save test history for test {test_id}: {e}")
+
+    return html
 
 # Helper: save report HTML to disk
 def save_report_html(html_content: str, filename: str) -> str:
@@ -2106,8 +2186,19 @@ def generate_performance_graph_from_test(test_data):
     return generate_performance_graph(actual_performance, test_type, total_requests, failures_rate)
 
 
-def generate_html_report_from_test(test_data):
+def format_speed_field(value):
+    """Format an upload/download speed value with Mbps units."""
+    if value is None:
+        return "Unknown"
+    value_str = str(value).strip()
+    if value_str.lower().endswith("mbps"):
+        return value_str
+    return f"{value_str} Mbps"
+
+
+def generate_html_report_from_test(test_data, report_style="Individual"):
     """Generate an HTML report from test data with embedded base64 graph."""
+    report_context = "During Project Report" if report_style == "During Project" else "Individual Test Report"
     # Generate graph in memory
     fig = generate_performance_graph_from_test(test_data)
     buf = io.BytesIO()
@@ -2123,6 +2214,20 @@ def generate_html_report_from_test(test_data):
     timestamp = test_data.get("timestamp", datetime.now().isoformat())
     users = test_data.get("users", "Unknown")
     duration = test_data.get("duration", "Unknown")
+    ram = str(test_data.get("ram", test_data.get("system_ram", "64 GB")))
+    cpu = str(test_data.get("cpu", test_data.get("system_cpu", "32")))
+    hard_disk = str(test_data.get("hard_disk", test_data.get("system_disk", "750 GB")))
+    operating_system = str(test_data.get("operating_system", test_data.get("system_os", "Linux")))
+    deployment = str(test_data.get("deployment", "Cloud Services"))
+    def format_speed_field(value):
+        if value is None:
+            return "Unknown"
+        value_str = str(value).strip()
+        if value_str.lower().endswith("mbps"):
+            return value_str
+        return f"{value_str} Mbps"
+    download_speed = format_speed_field(test_data.get("download_speed", 13.78))
+    upload_speed = format_speed_field(test_data.get("upload_speed", 31.37))
     stats = test_data.get("stats", {})
     total_requests = stats.get("total_requests", 0)
     failures_rate = stats.get("failures_rate", 0)
@@ -2147,11 +2252,19 @@ def generate_html_report_from_test(test_data):
     </head>
     <body>
         <h1>{test_type} Test Report</h1>
+        <p><strong>Report Context:</strong> {report_context}</p>
         <p><strong>Project:</strong> {project_name}</p>
         <p><strong>Test ID:</strong> {test_id}</p>
         <p><strong>Date:</strong> {timestamp}</p>
         <p><strong>Users:</strong> {users}</p>
-        <p><strong>Duration:</strong> {duration} seconds</p>
+        <p><strong>Duration:</strong> {duration}</p>
+        <p><strong>RAM:</strong> {ram}</p>
+        <p><strong>CPU Cores:</strong> {cpu}</p>
+        <p><strong>Hard Disk:</strong> {hard_disk}</p>
+        <p><strong>Operating System:</strong> {operating_system}</p>
+        <p><strong>Deployment:</strong> {deployment}</p>
+        <p><strong>Download Speed:</strong> {download_speed}</p>
+        <p><strong>Upload Speed:</strong> {upload_speed}</p>
         <h2>Metrics</h2>
         <div class="metrics">
             <div class="metric"><span class="metric-label">Total Requests:</span> {total_requests}</div>
@@ -2269,90 +2382,151 @@ if st.session_state.current_page == "Home":
     
     with tab1:
         st.markdown("### ⚙️ TEST PARAMETERS")
-        col1, col2 = st.columns(2)
-        with col1:
-            project_name = st.text_input("📋 Project Name", " ", help="Name of the project being tested")
-            target_host = st.text_input("🌐 Target URL", " ", help="The endpoint to test")
-            test_type = st.selectbox(
-                "🔧 Test Type", 
-                list(MAX_USERS_LIMITS.keys()), 
-                index=list(MAX_USERS_LIMITS.keys()).index(st.session_state.selected_test_type),
-                help="Select the type of performance test",
-                key="test_type_select"
-            )
-            if test_type != st.session_state.selected_test_type:
-                st.session_state.selected_test_type = test_type
-                st.session_state.duration_minutes = DEFAULT_DURATIONS[test_type] // 60
-            st.markdown(f"""
-            <div style="margin-top: 10px; padding: 10px; background: rgba(26, 95, 180, 0.1); border-radius: 8px;">
-                <h4 style="color: var(--cosmic-primary);">Test Description</h4>
-                <p style="color: var(--cosmic-text);">{TEST_TYPE_DESCRIPTIONS.get(test_type, 'Select a test type')}</p>
-            </div>
-            """, unsafe_allow_html=True)
 
+        st.markdown("#### 🧩 Test Setup")
+        project_name = st.text_input("📋 Project Name", " ", help="Name of the project being tested")
+        target_host = st.text_input("🌐 Target URL", " ", help="The endpoint to test")
+        test_type = st.selectbox(
+            "🔧 Test Type",
+            list(MAX_USERS_LIMITS.keys()),
+            index=list(MAX_USERS_LIMITS.keys()).index(st.session_state.selected_test_type),
+            help="Select the type of performance test",
+            key="test_type_select"
+        )
+        if test_type != st.session_state.selected_test_type:
+            st.session_state.selected_test_type = test_type
+            st.session_state.duration_minutes = DEFAULT_DURATIONS[test_type] // 60
 
-        with col2:
-            max_users = MAX_USERS_LIMITS[test_type]
+        st.markdown("#### 🔎 Test Description")
+        st.info("Tests system limits by applying load beyond normal capacity to identify breaking points.")
 
-            col21, col22, col23 = st.columns(3)
-            with col21:
-                users = st.number_input(
-                    f"👥 Total Users (Max {max_users:,})", min_value=1, max_value=max_users,
-                    value=500 if test_type == "Spike Test" else 100,
-                    help="Final user count for the test"
-                )
-            with col22:
-                spawn_default = 100 if test_type == "Spike Test" else 10
-                spawn_rate = st.slider(
-                    "📈 Spawn Rate (users/sec)", 1, 100,
-                    value=spawn_default,
-                    help="How quickly to add users during the test"
-                )
-            with col23:
-                default_duration = DEFAULT_DURATIONS[test_type]
-                duration = st.number_input(
-                    "⏱️ Duration (seconds)",
-                    min_value=10,
-                    max_value=86400,
-                    value=default_duration
-                )
-                st.markdown(f'<div class="duration-info">≈ {duration//60} minutes, {duration%60} seconds</div>', 
-                          unsafe_allow_html=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("##### 🖥️ System Configuration")
+        ram = st.selectbox(
+            "🧠 RAM",
+            ["16 GB", "32 GB", "64 GB", "128 GB"],
+            index=2,
+            help="Select the RAM configuration for this test"
+        )
+        cpu = st.number_input(
+            "💻 CPU Cores",
+            min_value=1,
+            max_value=128,
+            value=32,
+            help="Number of CPU cores available for this environment"
+        )
+        hard_disk = st.text_input(
+            "💾 Hard Disk",
+            "750 GB",
+            help="Specify the hard disk capacity for this test environment"
+        )
+        operating_system = st.selectbox(
+            "🧩 Operating System",
+            ["Linux", "Windows", "macOS", "Other"],
+            index=0,
+            help="Select the operating system for this environment"
+        )
+
+        st.markdown("#### 🧪 Execution Parameters")
+        users = st.number_input(
+            f"👥 Total Users (Max {MAX_USERS_LIMITS[test_type]:,})",
+            min_value=1,
+            max_value=MAX_USERS_LIMITS[test_type],
+            value=500 if test_type == "Spike Test" else 100,
+            help="Final user count for the test"
+        )
+        spawn_default = 100 if test_type == "Spike Test" else 10
+        spawn_rate = st.slider(
+            "📈 Spawn Rate (users/sec)", 1, 100,
+            value=spawn_default,
+            help="How quickly to add users during the test"
+        )
+        duration = st.number_input(
+            "⏱️ Duration (seconds)",
+            min_value=10,
+            max_value=86400,
+            value=DEFAULT_DURATIONS[test_type]
+        )
+        st.caption(f"≈ {duration//60} minutes, {duration%60} seconds")
+
+        st.markdown("#### ☁️ Deployment & Network")
+        deployment = st.selectbox(
+            "☁️ Deployment",
+            ["Staging", "Production", "Cloud Services", "Edge"],
+            index=2,
+            help="Select the deployment type for this test"
+        )
+        download_speed = st.number_input(
+            "⬇️ Download Speed (Mbps)",
+            min_value=0.0,
+            value=13.78,
+            format="%.2f",
+            help="Download network speed for this environment"
+        )
+        upload_speed = st.number_input(
+            "⬆️ Upload Speed (Mbps)",
+            min_value=0.0,
+            value=31.37,
+            format="%.2f",
+            help="Upload network speed for this environment"
+        )
+
+        st.markdown("#### 📌 Quick Summary")
+        st.metric("Test Type", test_type)
+        st.metric("Deployment", deployment)
+        st.metric("Environment", operating_system)
+        st.markdown(f"**Duration:** {duration//60} mins")
+        st.markdown(f"**Target URL:** {target_host}")
+        st.markdown(f"**Project:** {project_name}")
+        st.markdown(f"**Network:** {download_speed:.2f} Mbps ↓ | {upload_speed:.2f} Mbps ↑")
+
+        st.markdown("---")
 
         if not st.session_state.test_running:
             if st.button("🚀 Start Performance Test", type="primary", use_container_width=True, key="start_test"):
-                st.session_state.test_running = True
-                st.session_state.config = get_test_config(test_type, users, spawn_rate, duration)
-                st.session_state.project_name = project_name
+                if not project_name.strip():
+                    st.error("Please provide a project name before starting the test.")
+                elif not validate_target_url(target_host):
+                    st.error("Please enter a valid Target URL. Include http:// or https://")
+                else:
+                    st.session_state.test_running = True
+                    st.session_state.config = get_test_config(test_type, users, spawn_rate, duration)
+                    st.session_state.config.update({
+                        "ram": ram,
+                        "cpu": cpu,
+                        "hard_disk": hard_disk,
+                        "operating_system": operating_system,
+                        "deployment": deployment,
+                        "download_speed": download_speed,
+                        "upload_speed": upload_speed
+                    })
+                    st.session_state.project_name = project_name
 
-                # Display test summary with improved margins and inline styles
-                st.markdown(f"""
-                <div class="summary-card" style="margin: 20px; padding: 20px; display: inline-block; width: 100%; box-sizing: border-box;">
-                    <div class="summary-header" style="margin-bottom: 15px; font-size: 1.2rem;">🚀 Starting {test_type}</div>
-                    <div class="summary-metric" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span class="summary-label" style="margin-right: 10px;">Project:</span>
-                        <span class="summary-value">{project_name}</span>
+                    # Display test summary with improved margins and inline styles
+                    st.markdown(f"""
+                    <div class="summary-card" style="margin: 20px; padding: 20px; display: inline-block; width: 100%; box-sizing: border-box;">
+                        <div class="summary-header" style="margin-bottom: 15px; font-size: 1.2rem;">🚀 Starting {test_type}</div>
+                        <div class="summary-metric" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span class="summary-label" style="margin-right: 10px;">Project:</span>
+                            <span class="summary-value">{project_name}</span>
+                        </div>
+                        <div class="summary-metric" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span class="summary-label" style="margin-right: 10px;">Users:</span>
+                            <span class="summary-value">{st.session_state.config['users']}</span>
+                        </div>
+                        <div class="summary-metric" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span class="summary-label" style="margin-right: 10px;">Spawn Rate:</span>
+                            <span class="summary-value">{st.session_state.config['spawn']} users/sec</span>
+                        </div>
+                        <div class="summary-metric" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span class="summary-label" style="margin-right: 10px;">Duration:</span>
+                            <span class="summary-value">{st.session_state.config['duration']} seconds ≈ {st.session_state.config['duration'] // 60} mins</span>
+                        </div>
+                        <div class="summary-metric" style="display: flex; justify-content: space-between;">
+                            <span class="summary-label" style="margin-right: 10px;">Target:</span>
+                            <span class="summary-value">{target_host}</span>
+                        </div>
                     </div>
-                    <div class="summary-metric" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span class="summary-label" style="margin-right: 10px;">Users:</span>
-                        <span class="summary-value">{st.session_state.config['users']}</span>
-                    </div>
-                    <div class="summary-metric" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span class="summary-label" style="margin-right: 10px;">Spawn Rate:</span>
-                        <span class="summary-value">{st.session_state.config['spawn']} users/sec</span>
-                    </div>
-                    <div class="summary-metric" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span class="summary-label" style="margin-right: 10px;">Duration:</span>
-                        <span class="summary-value">{st.session_state.config['duration']} seconds ≈ {st.session_state.config['duration'] // 60} mins</span>
-                    </div>
-                    <div class="summary-metric" style="display: flex; justify-content: space-between;">
-                        <span class="summary-label" style="margin-right: 10px;">Target:</span>
-                        <span class="summary-value">{target_host}</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
 
                 try:
                     with st.spinner("Starting performance engine..."):
@@ -2399,8 +2573,16 @@ if st.session_state.current_page == "Home":
                                 "test_type": test_type,
                                 "project_name": project_name,
                                 "config": st.session_state.config,
-                                "users": st.session_state.current_user,  # Save actual user count
+                                "users": st.session_state.config.get('users', users),
                                 "duration": f"{duration} seconds",  # Save formatted duration
+                                "duration_display": format_duration_display(duration),
+                                "ram": ram,
+                                "cpu": cpu,
+                                "hard_disk": hard_disk,
+                                "operating_system": operating_system,
+                                "deployment": deployment,
+                                "download_speed": download_speed,
+                                "upload_speed": upload_speed,
                                 "start_time": datetime.now().isoformat(),
                                 "end_time": datetime.now().isoformat(),
                                 "stats": {
@@ -2522,7 +2704,14 @@ if st.session_state.current_page == "Home":
                         "p95_response_time": actual_performance["95th Percentile Response Time (ms)"],
                         "max_response_time": actual_performance["Max Response Time (ms)"]
                     },
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                "ram": st.session_state.config.get("ram", "64 GB"),
+                "cpu": st.session_state.config.get("cpu", 32),
+                "hard_disk": st.session_state.config.get("hard_disk", "750 GB"),
+                "operating_system": st.session_state.config.get("operating_system", "Linux"),
+                "deployment": st.session_state.config.get("deployment", "Cloud Services"),
+                "download_speed": st.session_state.config.get("download_speed", 13.78),
+                "upload_speed": st.session_state.config.get("upload_speed", 31.37)
                 }
                 
                 # Generate visualization
@@ -2805,9 +2994,9 @@ elif st.session_state.current_page == "Test History":
     .test-description {
         background: linear-gradient(135deg, var(--secondary-color) 0%, #4e4376 100%);
         color: white;
-        padding: 25px 30px;
+        padding: 18px 20px;
         border-radius: var(--border-radius);
-        margin: 30px 0;
+        margin: 18px 0;
         box-shadow: var(--box-shadow);
         border-left: 5px solid var(--accent-color);
     }
@@ -2815,7 +3004,7 @@ elif st.session_state.current_page == "Test History":
     .test-description h2 {
         color: white;
         font-size: 1.8rem;
-        margin-bottom: 15px;
+        margin-bottom: 12px;
         display: flex;
         align-items: center;
         gap: 10px;
@@ -2827,22 +3016,23 @@ elif st.session_state.current_page == "Test History":
     }
 
     .test-description p {
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         opacity: 0.95;
-        line-height: 1.7;
+        line-height: 1.5;
+        margin: 0;
     }
 
     /* Report Info Cards */
     .report-info {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 25px;
-        margin: 40px 0;
+        gap: 14px;
+        margin: 24px 0;
     }
 
     .info-box {
         background: var(--card-bg);
-        padding: 25px;
+        padding: 18px 20px;
         border-radius: var(--border-radius);
         box-shadow: var(--box-shadow);
         transition: var(--transition);
@@ -2869,23 +3059,24 @@ elif st.session_state.current_page == "Test History":
     .info-box h3 {
         color: var(--primary-color);
         font-size: 1.3rem;
-        margin-bottom: 20px;
-        padding-bottom: 10px;
+        margin-bottom: 12px;
+        padding-bottom: 6px;
         border-bottom: 2px solid var(--light-bg);
     }
 
     .info-box p {
-        margin: 12px 0;
+        margin: 10px 0;
         color: var(--text-light);
-        font-size: 1rem;
-        line-height: 1.6;
+        font-size: 0.98rem;
+        line-height: 1.65;
     }
 
     .info-box strong {
         color: var(--text-dark);
-        min-width: 140px;
+        min-width: 165px;
         display: inline-block;
         font-weight: 600;
+        vertical-align: top;
     }
 
     /* Load Test Status */
@@ -4073,7 +4264,7 @@ elif st.session_state.current_page == "Test History":
 
         return recommendations, next_steps
 
-    def generate_project_html(project_name, project_data, timestamp):
+    def generate_project_html(project_name, project_data, timestamp, report_style="Individual"):
         """Generate HTML content for a project with Key Insights."""
         tests = project_data['tests']
         status_counts = project_data['status_counts']
@@ -4103,6 +4294,27 @@ elif st.session_state.current_page == "Test History":
                 'max_response': 140322.0, 'failure_rate': 0.0, 'test_type': 'Load Test', 
                 'date': timestamp
             }
+
+        latest_test_record = max(tests, key=lambda t: t.get('timestamp', ''), default={})
+        latest_test_id = latest_test_record.get('test_id', latest_test_record.get('id', 'N/A'))
+        test_types = ', '.join(sorted({test.get('test_type', 'Unknown') for test in tests}))
+        try:
+            display_date = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %I:%M %p")
+        except Exception:
+            display_date = timestamp
+        
+        # Use latest test metadata for system configuration values
+        latest_test_data = latest_test_record if isinstance(latest_test_record, dict) else {}
+        latest_users = latest_test_data.get('users', 'N/A')
+        latest_duration_raw = latest_test_data.get('duration', None)
+        latest_duration_display = format_duration_display(latest_duration_raw)
+        ram = str(latest_test_data.get('ram', latest_test_data.get('system_ram', '64 GB')))
+        cpu = str(latest_test_data.get('cpu', latest_test_data.get('system_cpu', '32')))
+        hard_disk = str(latest_test_data.get('hard_disk', latest_test_data.get('system_disk', '750 GB')))
+        operating_system = str(latest_test_data.get('operating_system', latest_test_data.get('system_os', 'Linux')))
+        deployment = str(latest_test_data.get('deployment', 'Cloud Services'))
+        download_speed = format_speed_field(latest_test_data.get('download_speed', 13.78))
+        upload_speed = format_speed_field(latest_test_data.get('upload_speed', 31.37))
 
         # ==== CALCULATE OVERALL RATING BASED ONLY ON TEST COUNTS ====
         # Healthy = 5 points, Warning = 3 points, Critical = 1 point
@@ -4161,24 +4373,28 @@ elif st.session_state.current_page == "Test History":
         test_types = list({test.get('test_type', 'Load Test') for test in tests})
         trend_plot_html = create_trend_plot(sorted_trends if sorted_trends else performance_trend, project_name)
         
+        report_context = "During Project Report" if report_style == "During Project" else "Individual Test Report"
         html_content = f"""
             <div class="project-section">
                 <div class="report-info">
                     <div class="info-box">
                         <h3>Test Information</h3>
                         <p><strong>Project Title:</strong> {project_name}</p>
-                        <p><strong>Test Types:</strong> {', '.join(test_types)}</p>
-                        <p><strong>Test ID:</strong> Multiple</p>
-                    </div>
-                    <div class="info-box">
-                        <h3>Test Summary</h3>
-                        <p><strong>Date:</strong> {timestamp}</p>
-                        <p><strong>Tested By:</strong> Quality Assurance Department</p>
-                    </div>
-                    <div class="info-box">
-                        <h3>System Information</h3>
+                        <p><strong>Test Type:</strong> {test_types}</p>
+                        <p><strong>Test ID:</strong> {latest_test_id}</p>
                         <p><strong>Tool Version:</strong> Locust 3.35</p>
-                        <p><strong>Generated By:</strong> EAII🚀PTT</p>
+                        <p><strong>Evaluation Based on:</strong> IEEE/ISO and Industry standards</p>
+                        <p><strong>Date:</strong> {display_date}</p>
+                    </div>
+                    <div class="info-box">
+                        <h3>System Configuration</h3>
+                        <p><strong>RAM:</strong> {ram}</p>
+                        <p><strong>CPU Cores:</strong> {cpu}</p>
+                        <p><strong>Hard Disk:</strong> {hard_disk}</p>
+                        <p><strong>Operating System:</strong> {operating_system}</p>
+                        <p><strong>Deployment:</strong> {deployment}</p>
+                        <p><strong>Download Speed:</strong> {download_speed}</p>
+                        <p><strong>Upload Speed:</strong> {upload_speed}</p>
                     </div>
                 </div>
                 <div class="project-summary">
@@ -4197,7 +4413,7 @@ elif st.session_state.current_page == "Test History":
                             <div class="metric-value">{status_counts['critical']}</div>
                         </div>
                     </div>
-                    <h3>Overall Performance Results: <span class="{overall_class}">{status_icon} {project_status} {stars} Average Rating: {average_rating:.1f}/5</span></h3>
+                    <h3>Overall Performance Result: <span class="{overall_class}">{status_icon} {project_status} {stars} Average Rating: {average_rating:.1f}/5</span></h3>
                     <div class="metrics-grid">
                         <div class="metric-card">
                             <div>Requests/Sec</div>
@@ -4336,13 +4552,17 @@ elif st.session_state.current_page == "Test History":
             users_display = test.get('users', 'N/A')
             duration_raw = test.get('duration', None)
             duration_display = format_duration_display(duration_raw)
+            ram = str(test.get('ram', test.get('system_ram', '64 GB')))
+            cpu = str(test.get('cpu', test.get('system_cpu', '32')))
+            hard_disk = str(test.get('hard_disk', test.get('system_disk', '750 GB')))
+            operating_system = str(test.get('operating_system', test.get('system_os', 'Linux')))
+            deployment = str(test.get('deployment', 'Cloud Services'))
+            download_speed = format_speed_field(test.get('download_speed', 13.78))
+            upload_speed = format_speed_field(test.get('upload_speed', 31.37))
 
             html_content += f"""
                 <div class="test-card">
-                    <h3>Test Type: {test.get('test_type', 'N/A')} 
-                        <span class="{status_class}">{test.get('overall_status', 'Unknown')}</span>
-                    </h3>
-                    <p><strong>Test ID:</strong> {test.get('test_id', 'N/A')} • <strong>Date:</strong> {test_date} • <strong>Users:</strong> {users_display} • <strong>Duration:</strong> {duration_display}</p>
+                    <h3>Test Type: {test.get('test_type', 'N/A')} | Performance Result: <span class="{status_class}">{test.get('overall_status', 'Unknown')}</span></h3>
                     <div class="metrics-grid">
                         <div class="metric-card">
                             <div>Requests/Sec</div>
@@ -4385,11 +4605,21 @@ elif st.session_state.current_page == "Test History":
         html_content += "</div>"
         return html_content
 
-    def generate_history_report(test_history, project_name=None):
+    def generate_history_report(test_history, project_name=None, report_style="Individual"):
         """Generate comprehensive HTML report with health scoring, per-test graphs, and trend plot."""
         if project_name:
             test_history = [t for t in test_history if t.get('project_name') == project_name]
         
+        report_context = "During Project Report" if report_style == "During Project" else "Individual Test Report"
+        
+        def format_speed_field(value):
+            if value is None:
+                return "Unknown"
+            value_str = str(value).strip()
+            if value_str.lower().endswith("mbps"):
+                return value_str
+            return f"{value_str} Mbps"
+
         print(f"Filtered test_history count: {len(test_history)}")
         for idx, test in enumerate(test_history):
             print(f"Test {idx + 1} test_type: {test.get('test_type', 'Missing')}")
@@ -4486,7 +4716,7 @@ elif st.session_state.current_page == "Test History":
         """
         
         for project_name, project_data in projects.items():
-            html_content += generate_project_html(project_name, project_data, timestamp)
+            html_content += generate_project_html(project_name, project_data, timestamp, report_style)
         
         html_content += f"""
             <footer class="footer">
@@ -4888,9 +5118,17 @@ elif st.session_state.current_page == "Test History":
                     st.metric("Fail Rate", f"{test['stats'].get('failures_rate', 0):.1f}%")
                     st.metric("95th %ile", f"{test['stats'].get('p95_response_time', 0):.1f} ms")
 
+                report_style = st.selectbox(
+                    "Report style",
+                    ["Individual", "During Project"],
+                    key=f"report_style_{test['test_id']}"
+                )
                 # Generate and display report
                 if st.button(f"📄 Generate Report for {test['test_id']}"):
-                    html_report = generate_html_report(test)
+                    if report_style == "Individual":
+                        html_report = generate_html_report_from_test(test, report_style=report_style)
+                    else:
+                        html_report = generate_html_report(test, report_style=report_style)
                     st.download_button(
                         label="⬇️ Download HTML Report",
                         data=html_report,
@@ -4943,8 +5181,15 @@ elif st.session_state.current_page == "Test History":
             
             # Safely get, convert duration to integer, then to minutes
             duration = test_data.get("duration", None)
-            
-            
+
+            def format_speed_field(value):
+                if value is None:
+                    return "Unknown"
+                value_str = str(value).strip()
+                if value_str.lower().endswith("mbps"):
+                    return value_str
+                return f"{value_str} Mbps"
+
             return {
                 "test_type": test_type,
                 "project_name": test_data.get("project_name", "Unnamed Project"),
@@ -4952,6 +5197,13 @@ elif st.session_state.current_page == "Test History":
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M %p"),
                 "users": users,  # Use the converted value
                 "duration": duration,
+                "ram": str(test_data.get("ram", test_data.get("system_ram", "64 GB"))),
+                "cpu": str(test_data.get("cpu", test_data.get("system_cpu", "32"))),
+                "hard_disk": str(test_data.get("hard_disk", test_data.get("system_disk", "750 GB"))),
+                "operating_system": str(test_data.get("operating_system", test_data.get("system_os", "Linux"))),
+                "deployment": str(test_data.get("deployment", "Cloud Services")),
+                "download_speed": format_speed_field(test_data.get("download_speed", 13.78)),
+                "upload_speed": format_speed_field(test_data.get("upload_speed", 31.37))
             }
 
         def extract_performance_metrics():
@@ -4975,6 +5227,13 @@ elif st.session_state.current_page == "Test History":
         timestamp = metadata["timestamp"]
         users = metadata["users"]
         duration = metadata["duration"]
+        ram = metadata.get("ram", "64 GB")
+        cpu = metadata.get("cpu", "32")
+        hard_disk = metadata.get("hard_disk", "750 GB")
+        operating_system = metadata.get("operating_system", "Linux")
+        deployment = metadata.get("deployment", "Cloud Services")
+        download_speed = metadata.get("download_speed", "13.78 Mbps")
+        upload_speed = metadata.get("upload_speed", "31.37 Mbps")
 
         metrics = extract_performance_metrics()
         total_requests = metrics["total_requests"]
@@ -5040,7 +5299,7 @@ elif st.session_state.current_page == "Test History":
                     "95th Percentile Response Time (ms)": {"target": 800, "warning": 1000, "critical": 1500},
                     "Average Response Time (ms)": {"target": 300, "warning": 500, "critical": 800},
                     "Max Response Time (ms)": {"target": 4000, "warning": 6000, "critical": 10000},
-                    "Failure Rate (%)": {"target": 0, "warning": 3, "critical": 5}
+                    "Failure Rate (%)": {"target": 1, "warning": 3, "critical": 5}
                 }
             },
             "concurrency": {
@@ -5050,7 +5309,7 @@ elif st.session_state.current_page == "Test History":
                     "95th Percentile Response Time (ms)": {"target": 900, "warning": 1200, "critical": 1800},
                     "Average Response Time (ms)": {"target": 400, "warning": 600, "critical": 800},
                     "Max Response Time (ms)": {"target": 5000, "warning": 7000, "critical": 10000},
-                    "Failure Rate (%)": {"target": 0, "warning": 5, "critical": 8}
+                    "Failure Rate (%)": {"target": 1, "warning": 5, "critical": 8}
                 }
             },
             "spike": {
@@ -5060,7 +5319,7 @@ elif st.session_state.current_page == "Test History":
                     "95th Percentile Response Time (ms)": {"target": 1200, "warning": 1800, "critical": 2500},
                     "Average Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
                     "Max Response Time (ms)": {"target": 6000, "warning": 9000, "critical": 15000},
-                    "Failure Rate (%)": {"target": 0, "warning": 10, "critical": 15}
+                    "Failure Rate (%)": {"target": 1, "warning": 10, "critical": 15}
                 }
             },
             "volume": {
@@ -5070,7 +5329,7 @@ elif st.session_state.current_page == "Test History":
                     "95th Percentile Response Time (ms)": {"target": 500, "warning": 800, "critical": 1200},
                     "Average Response Time (ms)": {"target": 200, "warning": 300, "critical": 500},
                     "Max Response Time (ms)": {"target": 3000, "warning": 5000, "critical": 8000},
-                    "Failure Rate (%)": {"target": 0, "warning": 1, "critical": 3}
+                    "Failure Rate (%)": {"target": 1, "warning": 3, "critical": 5}
                 }
             },
             "stress": {
@@ -5080,7 +5339,7 @@ elif st.session_state.current_page == "Test History":
                     "95th Percentile Response Time (ms)": {"target": 2000, "warning": 3000, "critical": 5000},
                     "Average Response Time (ms)": {"target": 800, "warning": 1200, "critical": 2000},
                     "Max Response Time (ms)": {"target": 10000, "warning": 15000, "critical": 30000},
-                    "Failure Rate (%)": {"target": 0, "warning": 15, "critical": 20}
+                    "Failure Rate (%)": {"target": 1, "warning": 15, "critical": 20}
                 }
             },
             "endurance": {
@@ -5090,7 +5349,7 @@ elif st.session_state.current_page == "Test History":
                     "95th Percentile Response Time (ms)": {"target": 1000, "warning": 1500, "critical": 2500},
                     "Average Response Time (ms)": {"target": 400, "warning": 600, "critical": 1000},
                     "Max Response Time (ms)": {"target": 5000, "warning": 8000, "critical": 15000},
-                    "Failure Rate (%)": {"target": 0, "warning": 5, "critical": 10}
+                    "Failure Rate (%)": {"target": 1, "warning": 5, "critical": 10}
                 }
             }
         }
@@ -5253,100 +5512,107 @@ elif st.session_state.current_page == "Test History":
         recommendations = []
         next_steps = []
 
+        rps_target = standards[test_type.lower()]['metrics']['Requests Per Second (RPS)']['target']
+        avg_target = standards[test_type.lower()]['metrics']['Average Response Time (ms)']['target']
+        p95_target = standards[test_type.lower()]['metrics']['95th Percentile Response Time (ms)']['target']
+        max_target = standards[test_type.lower()]['metrics']['Max Response Time (ms)']['target']
+        fail_target = standards[test_type.lower()]['metrics']['Failure Rate (%)']['target']
+        fail_warning = standards[test_type.lower()]['metrics']['Failure Rate (%)']['warning']
+
         if rps_status == "⚠️":
-            recommendations.append(f"Warning: Throughput ({rps:.1f} RPS, Rating: {rps_rating}) is below optimal levels (≥{standards[test_type.lower()]['metrics']['Requests Per Second (RPS)']['target']}). Increase server resources or optimize code.")
+            recommendations.append(f"Warning: Throughput is below the {test_type} standard at {rps:.1f} RPS versus expected ≥{rps_target} RPS.")
             next_steps.extend([
-                "<li><strong>Monitor CPU/memory:</strong> Use Prometheus to track resource usage and identify bottlenecks.</li>",
-                "<li><strong>Optimize code:</strong> Refine application code to reduce request processing time.</li>",
-                "<li><strong>Use load balancing:</strong> Implement load balancing to distribute requests evenly.</li>",
-                "<li><strong>Scale infrastructure:</strong> Ensure servers can handle expected load.</li>"
+                "<li><strong>Review capacity:</strong> Confirm server and database resources are sized for the target load.</li>",
+                "<li><strong>Optimize requests:</strong> Simplify slow queries and remove unnecessary payload work.</li>",
+                "<li><strong>Check network:</strong> Validate network latency and packet loss for the test environment.</li>",
+                "<li><strong>Scale horizontally:</strong> Add worker nodes or use a load balancer to improve throughput.</li>"
             ])
         elif rps_status == "❌":
-            recommendations.append(f"Critical: Throughput ({rps:.1f} RPS, Rating: {rps_rating}) is significantly below target (≥{standards[test_type.lower()]['metrics']['Requests Per Second (RPS)']['target']}). Check server capacity and network.")
+            recommendations.append(f"Critical: Throughput is critically low at {rps:.1f} RPS, below the warning threshold for {test_type} tests.")
             next_steps.extend([
-                "<li><strong>Analyze logs:</strong> Use ELK Stack to pinpoint errors or performance issues.</li>",
-                "<li><strong>Check network:</strong> Use Wireshark to monitor network bottlenecks.</li>",
-                "<li><strong>Cache with Redis:</strong> Implement caching to reduce server load.</li>",
-                "<li><strong>Scale servers:</strong> Add capacity to handle higher request volumes.</li>"
+                "<li><strong>Inspect logs:</strong> Use centralized logging to uncover request failures or throttling.</li>",
+                "<li><strong>Validate infrastructure:</strong> Check CPU, RAM, and network saturation during the test.</li>",
+                "<li><strong>Apply caching:</strong> Cache static content and repeated queries to reduce load.</li>",
+                "<li><strong>Use auto-scaling:</strong> Ensure the platform can add capacity automatically under load.</li>"
             ])
         else:
-            recommendations.append(f"Throughput ({rps:.1f} RPS, Rating: {rps_rating}) meets or exceeds {test_type} standards.")
+            recommendations.append(f"Throughput at {rps:.1f} RPS meets or exceeds the {test_type} standard.")
 
         if avg_status == "⚠️":
-            recommendations.append(f"Warning: Average response time ({avg_response:.1f} ms, Rating: {avg_response_rating}) is high (≤{standards[test_type.lower()]['metrics']['Average Response Time (ms)']['target']}). Optimize app performance.")
+            recommendations.append(f"Warning: Average response time is above the {test_type} standard at {avg_response:.1f} ms versus expected ≤{avg_target} ms.")
             next_steps.extend([
-                "<li><strong>Profile code:</strong> Use New Relic to identify slow code paths.</li>",
-                "<li><strong>Optimize queries:</strong> Add database indexes to speed up queries.</li>",
-                "<li><strong>Monitor response times:</strong> Track performance with APM tools.</li>",
-                "<li><strong>Optimize backend:</strong> Improve backend processes for load handling.</li>"
+                "<li><strong>Profile slow paths:</strong> Use APM or profiling tools to identify expensive operations.</li>",
+                "<li><strong>Optimize database access:</strong> Add indexes and simplify queries.</li>",
+                "<li><strong>Use caching:</strong> Cache repeat responses or expensive computations.</li>",
+                "<li><strong>Refine backend:</strong> Reduce serialization, I/O waits, and thread blocking.</li>"
             ])
         elif avg_status == "❌":
-            recommendations.append(f"Critical: Average response time ({avg_response:.1f} ms, Rating: {avg_response_rating}) exceeds limits (≤{standards[test_type.lower()]['metrics']['Average Response Time (ms)']['target']}). Optimize queries and processing.")
+            recommendations.append(f"Critical: Average response time is severely above the limit at {avg_response:.1f} ms, requiring immediate optimization.")
             next_steps.extend([
-                "<li><strong>Profile code:</strong> Analyze code paths with profiling tools.</li>",
-                "<li><strong>Cache with Redis:</strong> Use caching to reduce database load.</li>",
-                "<li><strong>Check CPU:</strong> Investigate CPU usage for bottlenecks.</li>",
-                "<li><strong>Use async processing:</strong> Implement asynchronous task handling.</li>"
+                "<li><strong>Analyze hotspots:</strong> Trace and profile the slowest request paths.</li>",
+                "<li><strong>Reduce contention:</strong> Improve database locks, thread pools, and connection management.</li>",
+                "<li><strong>Increase resources:</strong> Scale CPU or memory if processing is bottlenecked.</li>",
+                "<li><strong>Implement async:</strong> Use asynchronous processing for I/O-heavy flows.</li>"
             ])
         else:
-            recommendations.append(f"Average response time ({avg_response:.1f} ms, Rating: {avg_response_rating}) is excellent.")
+            recommendations.append(f"Average response time at {avg_response:.1f} ms is within the expected {test_type} standard.")
 
         if p95_status == "⚠️":
-            recommendations.append(f"Warning: 95th percentile response time ({p95_response:.1f} ms, Rating: {p95_rating}) shows delays (≤{standards[test_type.lower()]['metrics']['95th Percentile Response Time (ms)']['target']}). Optimize slow requests.")
+            recommendations.append(f"Warning: 95th percentile latency is above the {test_type} target at {p95_response:.1f} ms versus {p95_target} ms.")
             next_steps.extend([
-                "<li><strong>Analyze with Datadog:</strong> Visualize response time distributions.</li>",
-                "<li><strong>Optimize APIs:</strong> Improve high-latency API performance.</li>",
-                "<li><strong>Cache data:</strong> Store frequent data in cache.</li>",
-                "<li><strong>Handle peak load:</strong> Ensure system manages traffic spikes.</li>"
+                "<li><strong>Trace outliers:</strong> Identify and optimize the slowest endpoints.</li>",
+                "<li><strong>Cache frequent data:</strong> Reduce load on backend services for repeated requests.</li>",
+                "<li><strong>Review third-party calls:</strong> Check external service delays contributing to tail latency.</li>",
+                "<li><strong>Test retries:</strong> Ensure retries are not amplifying tail latency.</li>"
             ])
         elif p95_status == "❌":
-            recommendations.append(f"Critical: 95th percentile response time ({p95_response:.1f} ms, Rating: {p95_rating}) indicates slow performance (≤{standards[test_type.lower()]['metrics']['95th Percentile Response Time (ms)']['target']}). Optimize endpoints.")
+            recommendations.append(f"Critical: 95th percentile latency is dangerously high and exceeds the {test_type} warning threshold.")
             next_steps.extend([
-                "<li><strong>Trace endpoints:</strong> Use New Relic to identify slow APIs.</li>",
-                "<li><strong>Optimize queries:</strong> Review MySQL slow query log.</li>",
-                "<li><strong>Cache with Redis:</strong> Reduce database load with caching.</li>",
-                "<li><strong>Map slow features:</strong> Use Hotjar to identify slow interactions.</li>"
+                "<li><strong>Perform endpoint tracing:</strong> Use tracing tools to pinpoint latency spikes.</li>",
+                "<li><strong>Optimize slow queries:</strong> Focus on the heaviest database and external calls.</li>",
+                "<li><strong>Increase caching:</strong> Cache expensive operations to reduce the tail.</li>",
+                "<li><strong>Simplify payloads:</strong> Reduce request/response size for burst traffic.</li>"
             ])
         else:
-            recommendations.append(f"95th percentile response time ({p95_response:.1f} ms, Rating: {p95_rating}) is excellent.")
+            recommendations.append(f"95th percentile latency at {p95_response:.1f} ms is within the expected standard.")
 
         if max_status == "⚠️":
-            recommendations.append(f"Warning: Max response time ({max_response:.1f} ms, Rating: {max_response_rating}) is high (≤{standards[test_type.lower()]['metrics']['Max Response Time (ms)']['target']}). Optimize endpoints.")
+            recommendations.append(f"Warning: Peak response time is above standard at {max_response:.1f} ms versus expected ≤{max_target} ms.")
             next_steps.extend([
-                "<li><strong>Set alerts:</strong> Use Prometheus for >{standards[test_type.lower()]['metrics']['Max Response Time (ms)']['target']} ms alerts.</li>",
-                "<li><strong>Profile requests:</strong> Analyze slow requests for issues.</li>",
-                "<li><strong>Optimize calls:</strong> Improve database/API call performance.</li>",
-                "<li><strong>Ensure stability:</strong> Test system under heavy load.</li>"
+                "<li><strong>Analyze peak requests:</strong> Find requests that cause the longest delays.</li>",
+                "<li><strong>Set alerts:</strong> Alert on response spikes above the max threshold.</li>",
+                "<li><strong>Improve stability:</strong> Harden slow endpoints and remove inefficient operations.</li>",
+                "<li><strong>Scale selectively:</strong> Add resources to the services handling high-latency requests.</li>"
             ])
         elif max_status == "❌":
-            recommendations.append(f"Critical: Max response time ({max_response:.1f} ms, Rating: {max_response_rating}) indicates severe issues (≤{standards[test_type.lower()]['metrics']['Max Response Time (ms)']['target']}). Fix slow endpoints.")
+            recommendations.append(f"Critical: Peak response time is critically high and may indicate an unstable endpoint.")
             next_steps.extend([
-                "<li><strong>Trace outliers:</strong> Use Dynatrace to pinpoint delays.</li>",
-                "<li><strong>Set timeouts:</strong> Configure Nginx for 5s timeouts.</li>",
-                "<li><strong>Scale with ELB:</strong> Use AWS ELB to distribute traffic.</li>",
-                "<li><strong>Check features:</strong> Use Google Analytics for slow funnels.</li>"
+                "<li><strong>Trace outlier requests:</strong> Identify the exact request paths causing peak latency.</li>",
+                "<li><strong>Tune timeouts:</strong> Ensure backend and API timeouts are aligned with service expectations.</li>",
+                "<li><strong>Improve request handling:</strong> Reduce processing overhead for the slowest requests.</li>",
+                "<li><strong>Stabilize load:</strong> Use rate limiting or backpressure to prevent spikes.</li>"
             ])
         else:
-            recommendations.append(f"Max response time ({max_response:.1f} ms, Rating: {max_response_rating}) is excellent.")
+            recommendations.append(f"Peak response time at {max_response:.1f} ms is within the expected {test_type} standard.")
 
         if fail_status == "⚠️":
-            recommendations.append(f"Warning: Failure rate ({failures_rate:.2f}%, Rating: {fail_rating}) is high (≤{standards[test_type.lower()]['metrics']['Failure Rate (%)']['target']}%). Investigate error sources.")
+            recommendations.append(f"Warning: Failure rate is above the expected range at {failures_rate:.2f}% versus target ≤{fail_target}%. Review failed request sources.")
             next_steps.extend([
-                "<li><strong>Review logs:</strong> Use ELK Stack to identify failure causes.</li>",
-                "<li><strong>Fix errors:</strong> Address timeouts or resource issues.</li>",
-                "<li><strong>Add retries:</strong> Implement retry mechanisms for failures.</li>",
-                "<li><strong>Ensure stability:</strong> Test reliability under load.</li>"
+                "<li><strong>Review error logs:</strong> Identify recurring failures and resolve root causes.</li>",
+                "<li><strong>Improve retries:</strong> Add smart retry logic for transient failures.</li>",
+                "<li><strong>Validate dependencies:</strong> Ensure external services and databases are stable.</li>",
+                "<li><strong>Watch trends:</strong> Track failure rate over time to catch regressions early.</li>"
             ])
         elif fail_status == "❌":
-            recommendations.append(f"Critical: Failure rate ({failures_rate:.2f}%, Rating: {fail_rating}) indicates instability (≤{standards[test_type.lower()]['metrics']['Failure Rate (%)']['target']}%). Fix errors immediately.")
+            recommendations.append(f"Critical: Failure rate is critically high at {failures_rate:.2f}%, exceeding acceptable limits.")
             next_steps.extend([
-                "<li><strong>Review logs:</strong> Analyze logs with ELK Stack for errors.</li>",
-                "<li><strong>Fix issues:</strong> Address timeouts or exhaustion.</li>",
-                "<li><strong>Add retries:</strong> Implement retry logic for reliability.</li>",
-                "<li><strong>Monitor failures:</strong> Set up alerts for failure rates.</li>"
+                "<li><strong>Fix errors immediately:</strong> Resolve exceptions, timeouts, and bad responses in the system.</li>",
+                "<li><strong>Audit infrastructure:</strong> Check if service degradation or outages are causing failures.</li>",
+                "<li><strong>Implement circuit breakers:</strong> Protect the system from cascading failures.</li>",
+                "<li><strong>Alert on failures:</strong> Configure notifications when failure rate climbs above the threshold.</li>"
             ])
         else:
-            recommendations.append(f"Failure rate ({failures_rate:.2f}%, Rating: {fail_rating}) is excellent.")
+            recommendations.append(f"Failure rate at {failures_rate:.2f}% is within the expected {test_type} target.")
 
         # Generate and save performance graph
         os.makedirs("test_history", exist_ok=True)
@@ -5549,9 +5815,9 @@ elif st.session_state.current_page == "Test History":
         .test-description {
             background: linear-gradient(135deg, #2b5876 0%, #4e4376 100%);
             color: white;
-            padding: 25px 30px;
+            padding: 18px 20px;
             border-radius: var(--border-radius);
-            margin: 30px 0;
+            margin: 18px 0;
             box-shadow: var(--box-shadow);
             border-left: 5px solid var(--accent-color);
         }
@@ -5559,7 +5825,7 @@ elif st.session_state.current_page == "Test History":
         .test-description h2 {
             color: white;
             font-size: 1.8rem;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             display: flex;
             align-items: center;
             gap: 10px;
@@ -5571,26 +5837,27 @@ elif st.session_state.current_page == "Test History":
         }
 
         .test-description p {
-            font-size: 1.1rem;
+            font-size: 1.05rem;
             opacity: 0.95;
-            line-height: 1.7;
+            line-height: 1.5;
+            margin: 0;
         }
 
         /* Report Info Cards - Enhanced */
         .report-info {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 25px;
-            margin: 40px 0;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 14px;
+            margin: 24px 0;
         }
 
         .info-box {
             background: var(--card-bg);
-            padding: 25px;
+            padding: 18px 20px;
             border-radius: var(--border-radius);
             box-shadow: var(--box-shadow);
             transition: var(--transition);
-            border: 1px solid rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(0, 0, 0, 0.08);
             position: relative;
             overflow: hidden;
         }
@@ -5613,8 +5880,8 @@ elif st.session_state.current_page == "Test History":
         .info-box h3 {
             color: var(--primary-color);
             font-size: 1.3rem;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
             border-bottom: 2px solid var(--light-bg);
             display: flex;
             align-items: center;
@@ -5627,9 +5894,10 @@ elif st.session_state.current_page == "Test History":
         }
 
         .info-box p {
-            margin: 12px 0;
+            margin: 8px 0;
             color: var(--text-light);
-            font-size: 1rem;
+            font-size: 0.98rem;
+            line-height: 1.45;
         }
 
         .info-box strong {
@@ -6080,6 +6348,8 @@ elif st.session_state.current_page == "Test History":
                     <p><strong>Project Title:</strong> {project_name}</p>
                     <p><strong>Test Type:</strong> {test_type} Test</p>
                     <p><strong>Test ID:</strong> {test_id}</p>
+                    <p><strong>Tool Version:</strong> Locust 3.35</p>
+                    <p><strong>Evaluation Based on:</strong> IEEE/ISO and Industry standards</p>
                 </div>
                 <div class="info-box">
                     <h3>Test Summary</h3>
@@ -6088,10 +6358,14 @@ elif st.session_state.current_page == "Test History":
                     <p><strong>Test Duration:</strong> {duration} minutes</p>
                 </div>
                 <div class="info-box">
-                    <h3>System Information</h3>
-                    <p><strong>Tool Version:</strong> Locust 3.35</p>
-                    <p><strong>Generated By:</strong> EAII🚀PTT</p>
-                    <p><strong>Average Rating:</strong> {test_data['overall_rating']}/5</p>
+                    <h3>System Configuration</h3>
+                    <p><strong>RAM:</strong> {ram}</p>
+                    <p><strong>CPU Cores:</strong> {cpu}</p>
+                    <p><strong>Hard Disk:</strong> {hard_disk}</p>
+                    <p><strong>Operating System:</strong> {operating_system}</p>
+                    <p><strong>Deployment:</strong> {deployment}</p>
+                    <p><strong>Download Speed:</strong> {download_speed}</p>
+                    <p><strong>Upload Speed:</strong> {upload_speed}</p>
                 </div>
             </div>
                 {load_status}
@@ -6099,6 +6373,7 @@ elif st.session_state.current_page == "Test History":
                 {distribution_table}
                 <div class="summary">
                     <h2>Detailed Metrics Analysis</h2>
+                    <p>The comparison between actual performance and expected standards (IEEE/ISO and industry)</p>
                     <table>
                         <thead>
                             <tr>
@@ -6614,9 +6889,8 @@ elif st.session_state.current_page == "Test History":
                         
                         if selected_download_project != "All Projects":
                             project_history = [test for test in test_history if test['project_name'] == selected_download_project]
-                            
                             if st.button(f"📦 Generate {selected_download_project} Project Report"):
-                                report_html = generate_history_report(project_history, project_name=selected_download_project)
+                                report_html = generate_history_report(project_history, project_name=selected_download_project, report_style="During Project")
                                 if report_html:
                                     project_file_name = f"performance_report_{selected_download_project.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.html"
                                     st.download_button(
@@ -6937,7 +7211,7 @@ elif st.session_state.current_page == "Test History":
                                         project_history = [test for test in valid_tests if test.get('project_name') == selected_download_project]
 
                                         if st.button(f"📦 Generate {selected_download_project} Project Report"):
-                                            report_html = generate_history_report(project_history, project_name=selected_download_project)
+                                            report_html = generate_history_report(project_history, project_name=selected_download_project, report_style="During Project")
                                             if report_html:
                                                 project_file_name = f"performance_report_{selected_download_project.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.html"
                                                 st.download_button(
