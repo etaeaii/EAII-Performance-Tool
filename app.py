@@ -571,15 +571,17 @@ def display_system_status():
 
 # --- UTILITY FUNCTIONS ---
 def validate_target_url(url):
-    """Validate the target URL format"""
-    pattern = re.compile(
-        r'^(?:http|ftp)s?://'  # http:// or https://
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
-        r'localhost|'  # localhost...
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
-        r'(?::\d+)?'  # optional port
-        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-    return re.match(pattern, url) is not None
+    """Validate the target URL format - simplified"""
+    if not url or not url.strip():
+        return False
+    url = url.strip()
+    # Allow localhost, IP addresses, or any URL with http:// or https://
+    if url.startswith(('http://', 'https://')):
+        return True
+    # Also allow localhost without protocol (will add http:// automatically)
+    if url.startswith('localhost') or re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', url):
+        return True
+    return False
 
 
 def format_duration_display(duration_field) -> str:
@@ -2528,135 +2530,144 @@ if st.session_state.current_page == "Home":
                     </div>
                     """, unsafe_allow_html=True)
 
-                try:
-                    with st.spinner("Starting performance engine..."):
-                        st.session_state.locust_process = start_locust_server(target_host)
-                        time.sleep(5)
+                    try:
+                        with st.spinner("Starting performance engine..."):
+                            st.session_state.locust_process = start_locust_server(target_host)
+                            time.sleep(5)
 
-                    triggered = trigger_test(
-                        st.session_state.config['users'],
-                        st.session_state.config['spawn'],
-                        target_host
-                    )
-                    if not triggered:
-                        st.error("🚨 Failed to start the test on performance server")
+                        triggered = trigger_test(
+                            st.session_state.config['users'],
+                            st.session_state.config['spawn'],
+                            target_host
+                        )
+                        if not triggered:
+                            st.error("🚨 Failed to start the test on performance server")
+                            st.session_state.test_running = False
+                            if st.session_state.locust_process:
+                                st.session_state.locust_process.terminate()
+                                st.session_state.locust_process = None
+                        else:
+                            # Monitor test and collect data
+                            df_stats = monitor_test(st.session_state.config['duration'])
+                            if not df_stats.empty:
+                                st.markdown("### 📊 Test Results")
+                                st.dataframe(df_stats.style.format({
+                                    "Requests/s": "{:.2f}",
+                                    "Avg Response (ms)": "{:.2f}",
+                                    "Fail %": "{:.2f}",
+                                    "95%ile (ms)": "{:.2f}"
+                                }).background_gradient(cmap='Blues'), use_container_width=True)
+
+                                # Calculate summary stats
+                                total_requests = df_stats["Requests/s"].sum() * (duration / len(df_stats))
+                                failures = df_stats["Fail %"].mean() * total_requests / 100
+                                failures_rate = (failures / total_requests) * 100 if total_requests > 0 else 0
+                                avg_rps = df_stats["Requests/s"].mean()
+                                avg_response = df_stats["Avg Response (ms)"].mean()
+                                p95_response = df_stats["95%ile (ms)"].mean()
+                                max_response = df_stats["Avg Response (ms)"].max()
+
+                                # FIXED: Safe access to users variable
+                                # Use the value from config, then fallback to local users, then default
+                                try:
+                                    users_value = st.session_state.config.get('users')
+                                    if users_value is None:
+                                        users_value = users if 'users' in locals() else 'Unknown'
+                                except Exception:
+                                    users_value = 'Unknown'
+
+                                # Ensure unique test ID
+                                test_data = {
+                                    "test_id": str(uuid.uuid4()),  # Generate unique ID
+                                    "test_type": test_type,
+                                    "project_name": project_name,
+                                    "config": st.session_state.config,
+                                    "users": users_value,
+                                    "duration": f"{duration} seconds",  # Save formatted duration
+                                    "duration_display": format_duration_display(duration),
+                                    "ram": ram,
+                                    "cpu": cpu,
+                                    "hard_disk": hard_disk,
+                                    "operating_system": operating_system,
+                                    "deployment": deployment,
+                                    "download_speed": download_speed,
+                                    "upload_speed": upload_speed,
+                                    "start_time": datetime.now().isoformat(),
+                                    "end_time": datetime.now().isoformat(),
+                                    "stats": {
+                                        "total_requests": total_requests,
+                                        "failures_rate": failures_rate,
+                                        "rps": avg_rps,
+                                        "avg_response_time": avg_response,
+                                        "p95_response_time": p95_response,
+                                        "max_response_time": max_response
+                                    }
+                                }
+
+                                # Calculate duration (in seconds) between start_time and end_time
+                                start_time = datetime.fromisoformat(test_data["start_time"])
+                                end_time = datetime.fromisoformat(test_data["end_time"])
+                                duration_seconds = (end_time - start_time).total_seconds()
+                                test_data["duration_seconds"] = duration_seconds  # Add duration to test_data
+
+                                # Initialize session state variables
+                                if "test_saved" not in st.session_state:
+                                    st.session_state.test_saved = False
+                                if "generate_viz" not in st.session_state:
+                                    st.session_state.generate_viz = False
+                                if "locust_process" not in st.session_state:
+                                    st.session_state.locust_process = None
+                                if "test_running" not in st.session_state:
+                                    st.session_state.test_running = False
+
+                                # Generate performance data and graph (regardless of saving)
+                                actual_performance = {
+                                    "Requests Per Second (RPS)": avg_rps,
+                                    "Average Response Time (ms)": avg_response,
+                                    "95th Percentile Response Time (ms)": p95_response,
+                                    "Max Response Time (ms)": max_response,
+                                    "Failure Rate (%)": failures_rate
+                                }
+
+                                # Generate graph and filename
+                                graph_filename = f"test_history/{test_data['test_id']}_performance_graph.png"
+                                graph = generate_performance_graph(actual_performance, test_type, total_requests, failures_rate)
+                                graph.savefig(graph_filename, bbox_inches="tight", dpi=100)
+                                plt.close(graph)
+
+                                # Always show download button if graph exists
+                                if os.path.exists(graph_filename):
+                                    with open(graph_filename, "rb") as file:
+                                        img_bytes = file.read()
+                                    if st.download_button(
+                                        label="Download Performance Graph",
+                                        data=img_bytes,
+                                        file_name=f"performance_graph_{test_data['test_id']}.png",
+                                        mime="image/png",
+                                        key=f"download_{test_data['test_id']}"
+                                    ):
+                                        # Also save a copy to the reports directory for quick access
+                                        os.makedirs(os.path.join("reports","graphs"), exist_ok=True)
+                                        dest = os.path.join("reports","graphs", f"performance_graph_{test_data['test_id']}.png")
+                                        try:
+                                            with open(dest, "wb") as out_f:
+                                                out_f.write(img_bytes)
+                                            st.success(f"Graph saved to: {dest}")
+                                        except Exception as e:
+                                            st.error(f"Failed to save graph to reports: {e}")
+                    except Exception as e:
+                        import traceback
+                        st.error(f"🚨 Error during test execution: {e}")
+                        st.code(traceback.format_exc())
                         st.session_state.test_running = False
                         if st.session_state.locust_process:
                             st.session_state.locust_process.terminate()
                             st.session_state.locust_process = None
-                    else:
-                        # Monitor test and collect data
-                        df_stats = monitor_test(st.session_state.config['duration'])
-                        if not df_stats.empty:
-                            st.markdown("### 📊 Test Results")
-                            st.dataframe(df_stats.style.format({
-                                "Requests/s": "{:.2f}",
-                                "Avg Response (ms)": "{:.2f}",
-                                "Fail %": "{:.2f}",
-                                "95%ile (ms)": "{:.2f}"
-                            }).background_gradient(cmap='Blues'), use_container_width=True)
 
-                            # Calculate summary stats
-                            total_requests = df_stats["Requests/s"].sum() * (duration / len(df_stats))
-                            failures = df_stats["Fail %"].mean() * total_requests / 100
-                            failures_rate = (failures / total_requests) * 100 if total_requests > 0 else 0
-                            avg_rps = df_stats["Requests/s"].mean()
-                            avg_response = df_stats["Avg Response (ms)"].mean()
-                            p95_response = df_stats["95%ile (ms)"].mean()
-                            max_response = df_stats["Avg Response (ms)"].max()
-
-                           
-
-                            # Ensure unique test ID
-                            test_data = {
-                                "test_id": str(uuid.uuid4()),  # Generate unique ID
-                                "test_type": test_type,
-                                "project_name": project_name,
-                                "config": st.session_state.config,
-                                "users": st.session_state.config.get('users', users),
-                                "duration": f"{duration} seconds",  # Save formatted duration
-                                "duration_display": format_duration_display(duration),
-                                "ram": ram,
-                                "cpu": cpu,
-                                "hard_disk": hard_disk,
-                                "operating_system": operating_system,
-                                "deployment": deployment,
-                                "download_speed": download_speed,
-                                "upload_speed": upload_speed,
-                                "start_time": datetime.now().isoformat(),
-                                "end_time": datetime.now().isoformat(),
-                                "stats": {
-                                    "total_requests": total_requests,
-                                    "failures_rate": failures_rate,
-                                    "rps": avg_rps,
-                                    "avg_response_time": avg_response,
-                                    "p95_response_time": p95_response,
-                                    "max_response_time": max_response
-                                }
-                            }
-
-                            # Calculate duration (in seconds) between start_time and end_time
-                            start_time = datetime.fromisoformat(test_data["start_time"])
-                            end_time = datetime.fromisoformat(test_data["end_time"])
-                            duration_seconds = (end_time - start_time).total_seconds()
-                            test_data["duration_seconds"] = duration_seconds  # Add duration to test_data
-
-                            # Initialize session state variables
-                            if "test_saved" not in st.session_state:
-                                st.session_state.test_saved = False
-                            if "generate_viz" not in st.session_state:
-                                st.session_state.generate_viz = False
-                            if "locust_process" not in st.session_state:
-                                st.session_state.locust_process = None
-                            if "test_running" not in st.session_state:
-                                st.session_state.test_running = False
-
-                            # Generate performance data and graph (regardless of saving)
-                            actual_performance = {
-                                "Requests Per Second (RPS)": avg_rps,
-                                "Average Response Time (ms)": avg_response,
-                                "95th Percentile Response Time (ms)": p95_response,
-                                "Max Response Time (ms)": max_response,
-                                "Failure Rate (%)": failures_rate
-                            }
-
-                            # Generate graph and filename
-                            graph_filename = f"test_history/{test_data['test_id']}_performance_graph.png"
-                            graph = generate_performance_graph(actual_performance, test_type, total_requests, failures_rate)
-                            graph.savefig(graph_filename, bbox_inches="tight", dpi=100)
-                            plt.close(graph)
-
-                            # Always show download button if graph exists
-                            if os.path.exists(graph_filename):
-                                with open(graph_filename, "rb") as file:
-                                    img_bytes = file.read()
-                                if st.download_button(
-                                    label="Download Performance Graph",
-                                    data=img_bytes,
-                                    file_name=f"performance_graph_{test_data['test_id']}.png",
-                                    mime="image/png",
-                                    key=f"download_{test_data['test_id']}"
-                                ):
-                                    # Also save a copy to the reports directory for quick access
-                                    os.makedirs(os.path.join("reports","graphs"), exist_ok=True)
-                                    dest = os.path.join("reports","graphs", f"performance_graph_{test_data['test_id']}.png")
-                                    try:
-                                        with open(dest, "wb") as out_f:
-                                            out_f.write(img_bytes)
-                                        st.success(f"Graph saved to: {dest}")
-                                    except Exception as e:
-                                        st.error(f"Failed to save graph to reports: {e}")
-                except Exception as e:
-                    st.error(f"🚨 Error during test execution: {e}")
-                    st.session_state.test_running = False
-                    if st.session_state.locust_process:
-                        st.session_state.locust_process.terminate()
-                        st.session_state.locust_process = None
-
-                finally:
-                    stop_test()
-                    st.session_state.test_running = False
-                    st.rerun()
+                    finally:
+                        stop_test()
+                        st.session_state.test_running = False
+                        st.rerun()
 
         else:
             st.warning("🛑 A test is currently stopped!")
